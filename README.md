@@ -1,36 +1,32 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Internal Mobility Desk
 
-## Getting Started
+A lightweight ride-coordination MVP for one campus Toto. Students and employees request rides, a rider manages pickup and completion, and completed trips stay available in history.
 
-First, run the development server:
+## Tech stack
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- Next.js App Router
+- TypeScript
+- Tailwind CSS
+- MongoDB Atlas with the official MongoDB Node.js driver
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Roles and workflow
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Choose a role when signing in: **Student**, **Employee**, or **Rider**. Student and employee requests support multiple passengers. The rider accepts one request, same-time requests become clashes, passengers are marked boarded or missed, and the trip can then be completed.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+**Request → Accept / Clash → Boarded / Missed → Complete → History**
 
-## Learn More
+## Run locally
 
-To learn more about Next.js, take a look at the following resources:
+1. Install Node.js 20.9 or newer and npm.
+2. Run `npm install`.
+3. Copy `.env.example` to `.env.local`.
+4. Set `MONGODB_URI` to your MongoDB Atlas connection string and set `MONGODB_DB=mobility_desk` in `.env.local`.
+5. Run `npm run dev` and open [http://localhost:3000](http://localhost:3000).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+`.env.local` is ignored by Git. Keep the real MongoDB URI and password out of committed files.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Checks
 
-## Deploy on Vercel
+Run `npm run lint`, `npx tsc --noEmit`, and `npm run build` before deploying. For Vercel, configure `MONGODB_URI` and `MONGODB_DB` in the project's Environment Variables for each target environment. The app does not deploy itself.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Login stores only a name and role in browser localStorage. It is a development/demo session, not production identity verification; production use requires server-backed authentication and authorization.
