@@ -1,52 +1,66 @@
-export type UserRole = "student" | "employee" | "rider" | "admin";
+export type UserRole = string;
 
-export type RoleCategory = "REQUESTER" | "RIDER" | "ADMIN";
+export type RoleCategory = "requester" | "rider" | "admin";
 
-export function getRoleCategory(role: UserRole): RoleCategory {
-  if (role === "student" || role === "employee") return "REQUESTER";
-  if (role === "rider") return "RIDER";
-  return "ADMIN";
+export function isRoleCategory(value: unknown): value is RoleCategory {
+  return value === "requester" || value === "rider" || value === "admin";
 }
 
-export function isRequester(role: unknown): role is "student" | "employee" {
-  return role === "student" || role === "employee";
+export function getBuiltInRoleCategory(role: unknown): RoleCategory | null {
+  if (role === "student" || role === "employee") return "requester";
+  if (role === "rider") return "rider";
+  if (role === "admin") return "admin";
+  return null;
 }
 
-export function isRider(role: unknown): role is "rider" {
-  return role === "rider";
+export function getRoleCategory(role: string, category?: RoleCategory): RoleCategory {
+  return category ?? getBuiltInRoleCategory(role) ?? "requester";
 }
 
-export function isAdmin(role: unknown): role is "admin" {
-  return role === "admin";
+export function isRequester(role: unknown, category?: RoleCategory): boolean {
+  return typeof role === "string" && getRoleCategory(role, category) === "requester";
 }
 
-export function isOperationalRole(role: unknown): role is "rider" | "admin" {
-  return isRider(role) || isAdmin(role);
+export function isRider(role: unknown, category?: RoleCategory): boolean {
+  return typeof role === "string" && getRoleCategory(role, category) === "rider";
 }
 
-export function getRoleHome(role: UserRole): string {
-  if (isAdmin(role)) return "/admin";
-  if (isRider(role)) return "/rider";
+export function isAdmin(role: unknown, category?: RoleCategory): boolean {
+  return typeof role === "string" && getRoleCategory(role, category) === "admin";
+}
+
+export function isOperationalRole(role: unknown, category?: RoleCategory): boolean {
+  return isRider(role, category) || isAdmin(role, category);
+}
+
+export function getRoleHome(role: string, category?: RoleCategory): string {
+  const roleCategory = getRoleCategory(role, category);
+  if (roleCategory === "admin") return "/admin";
+  if (roleCategory === "rider") return "/rider";
   return "/request";
 }
 
-export function getRoleLabel(role: UserRole): string {
-  if (isAdmin(role)) return "Admin / Mobility Desk";
-  if (isRider(role)) return "Rider";
+export function getRoleLabel(role: string, category?: RoleCategory, roleName?: string): string {
+  if (roleName?.trim()) return roleName.trim();
+  if (role === "admin" || category === "admin") return "Admin / Mobility Desk";
+  if (role === "rider" || category === "rider") return "Rider";
   if (role === "employee") return "Employee";
-  return "Student";
+  if (role === "student") return "Student";
+  return role;
 }
 
 export interface SessionUser {
   name: string;
   role: UserRole;
+  category: RoleCategory;
+  roleName: string;
 }
 
-export type RideStatus = "pending" | "accepted" | "clash" | "completed";
+export type RideStatus = "pending" | "accepted" | "waitlisted" | "clash" | "completed" | "cancelled";
 
 export type PickupStatus = "pending" | "boarded" | "missed";
 
-export type LocationName = "College" | "Station" | "Office";
+export type LocationName = string;
 
 export interface Passenger {
   name: string;
@@ -57,7 +71,7 @@ export interface Ride {
   _id?: string;
   requestedBy: {
     name: string;
-    role: "student" | "employee";
+    role: string;
   };
   from: LocationName;
   to: LocationName;
@@ -66,12 +80,18 @@ export interface Ride {
   status: RideStatus;
   createdAt: string;
   completedAt?: string | null;
+  archived?: boolean;
+  estimatedDurationMinutes?: number;
+  estimatedEndAt?: string;
+  cancelledAt?: string | null;
+  cancelledBy?: { name: string; role: string } | null;
+  cancellationReason?: string | null;
 }
 
 export function isUserRole(value: unknown): value is UserRole {
-  return isRequester(value) || isRider(value) || isAdmin(value);
+  return typeof value === "string" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);
 }
 
 export function isLocationName(value: unknown): value is LocationName {
-  return value === "College" || value === "Station" || value === "Office";
+  return typeof value === "string" && value.trim().length > 0;
 }

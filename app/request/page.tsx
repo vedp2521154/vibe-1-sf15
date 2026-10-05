@@ -3,14 +3,13 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { CalendarDays, Clock3, MapPin, Plus, RefreshCw, Trash2, Users } from "lucide-react";
 import AuthGuard from "@/components/AuthGuard";
-import { PassengerStatusBadge, RideStatusBadge } from "@/components/StatusBadge";
+import { PassengerRideStatusBadge, RideStatusBadge } from "@/components/StatusBadge";
 import { formatDateTime } from "@/lib/dateFormat";
 import { getSessionSnapshot, parseSessionUser, subscribeToSession } from "@/lib/session";
 import { userFacingMessage } from "@/lib/userFacingMessage";
-import { MAX_PASSENGERS_PER_RIDE } from "@/lib/rideLimits";
-import { isRequester, type LocationName, type Ride, type UserRole } from "@/lib/types";
-
-const locations: LocationName[] = ["College", "Station", "Office"];
+import { isRequester, type LocationName, type Ride } from "@/lib/types";
+import { DEFAULT_RIDE_DURATION_MINUTES, getRideDurationMinutes, getRideEstimatedEndAt } from "@/lib/scheduling";
+import CancelRideControl from "@/components/CancelRideControl";
 
 interface PassengerInput {
   id: number;
@@ -22,11 +21,13 @@ interface RideResponse {
   error?: string;
 }
 
-function requesterRole(role: UserRole | undefined): "student" | "employee" | null {
-  return isRequester(role) ? role : null;
+interface RequestConfigResponse { locations?: Array<{ name: string }>; settings?: { vehicleName: string; passengerCapacity: number }; error?: string }
+
+function requesterRole(role: string | undefined, category?: "requester" | "rider" | "admin"): string | null {
+  return role && isRequester(role, category) ? role : null;
 }
 
-async function fetchRequesterRides(name: string, role: "student" | "employee"): Promise<Ride[]> {
+async function fetchRequesterRides(name: string, role: string): Promise<Ride[]> {
   const query = new URLSearchParams({ requestedBy: name, role });
   const response = await fetch(`/api/rides?${query.toString()}`);
   const result = (await response.json()) as RideResponse;
@@ -46,12 +47,13 @@ function RequestPageContent() {
   );
   const user = parseSessionUser(session);
   const name = user?.name;
-  const role = requesterRole(user?.role);
+  const role = requesterRole(user?.role, user?.category);
 
   const [from, setFrom] = useState<LocationName | "">("");
   const [to, setTo] = useState<LocationName | "">("");
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
+  const [estimatedDurationMinutes, setEstimatedDurationMinutes] = useState(DEFAULT_RIDE_DURATION_MINUTES);
   const [passengers, setPassengers] = useState<PassengerInput[]>([{ id: 0, name: "" }]);
   const [myRides, setMyRides] = useState<Ride[]>([]);
   const [isLoadingRides, setIsLoadingRides] = useState(true);
@@ -59,7 +61,28 @@ function RequestPageContent() {
   const [formError, setFormError] = useState("");
   const [listError, setListError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [locations, setLocations] = useState<string[]>([]);
+  const [vehicleName, setVehicleName] = useState("Toto");
+  const [passengerCapacity, setPassengerCapacity] = useState(5);
+  const [configLoaded, setConfigLoaded] = useState(false);
   const nextPassengerId = useRef(1);
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([fetch("/api/config/locations"), fetch("/api/config/settings")])
+      .then(async ([locationsResponse, settingsResponse]) => {
+        const [locationData, settingsData] = await Promise.all([locationsResponse.json(), settingsResponse.json()]) as [RequestConfigResponse, RequestConfigResponse];
+        if (!locationsResponse.ok || !settingsResponse.ok) throw new Error(locationData.error ?? settingsData.error ?? "Ride settings are unavailable.");
+        if (active) {
+          setLocations((locationData.locations ?? []).map((location) => location.name));
+          setVehicleName(settingsData.settings?.vehicleName ?? "Toto");
+          setPassengerCapacity(settingsData.settings?.passengerCapacity ?? 5);
+        }
+      })
+      .catch((error: unknown) => { if (active) setFormError(error instanceof Error ? error.message : "Ride settings are unavailable."); })
+      .finally(() => { if (active) setConfigLoaded(true); });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     if (!name || !role) return;
@@ -102,7 +125,7 @@ function RequestPageContent() {
 
   function addPassenger() {
     setPassengers((current) => {
-      if (current.length >= MAX_PASSENGERS_PER_RIDE) return current;
+      if (current.length >= passengerCapacity) return current;
 
       return [...current, { id: nextPassengerId.current++, name: "" }];
     });
@@ -180,6 +203,7 @@ function RequestPageContent() {
           from,
           to,
           scheduledAt,
+          estimatedDurationMinutes,
           passengers: passengerNames.map((passengerName) => ({ name: passengerName })),
         }),
       });
@@ -193,8 +217,11 @@ function RequestPageContent() {
       setTo("");
       setDate("");
       setTime("");
+      setEstimatedDurationMinutes(DEFAULT_RIDE_DURATION_MINUTES);
       setPassengers([{ id: nextPassengerId.current++, name: name }]);
-      setSuccessMessage("Your ride request was submitted successfully.");
+      setSuccessMessage(result.ride?.status === "waitlisted"
+        ? "Your request was added to the waitlist because its time overlaps a confirmed ride."
+        : "Your ride request was submitted successfully.");
       setIsLoadingRides(true);
       try {
         setMyRides(await fetchRequesterRides(name, role));
@@ -245,6 +272,13 @@ function RequestPageContent() {
             >
               <option value="" disabled>Select pickup location</option>
               {locations.map((location) => <option key={location} value={location}>{location}</option>)}
+            </select>
+          </label>
+
+          <label className="block text-sm font-semibold text-slate-800">
+            <span className="mb-2 flex items-center gap-2"><Clock3 aria-hidden="true" className="size-4 text-mobility-600" />Estimated trip duration</span>
+            <select value={estimatedDurationMinutes} onChange={(event) => setEstimatedDurationMinutes(Number(event.target.value))} className="h-12 w-full rounded-xl border border-slate-300 bg-white px-3.5 text-sm font-normal text-slate-900 outline-none focus:border-mobility-600 focus:ring-4 focus:ring-mobility-600/10">
+              {[15, 30, 45, 60].map((minutes) => <option key={minutes} value={minutes}>{minutes} minutes</option>)}
             </select>
           </label>
 
@@ -326,13 +360,13 @@ function RequestPageContent() {
           <button
             type="button"
             onClick={addPassenger}
-            disabled={passengers.length >= MAX_PASSENGERS_PER_RIDE}
+            disabled={!configLoaded || passengers.length >= passengerCapacity}
             className="mt-3 inline-flex h-10 items-center gap-2 rounded-lg border border-mobility-200 px-3 text-sm font-semibold text-mobility-800 transition hover:bg-mobility-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mobility-600 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Plus aria-hidden="true" className="size-4" />
             Add Passenger
           </button>
-          <p className="mt-2 text-xs text-slate-500">Maximum {MAX_PASSENGERS_PER_RIDE} passengers per ride</p>
+          <p className="mt-2 text-xs text-slate-500">Maximum {passengerCapacity} passengers per ride.</p>
         </section>
 
         {formError && <p className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700" role="alert">{userFacingMessage(formError, "Your request could not be completed. Please try again shortly.")}</p>}
@@ -342,10 +376,10 @@ function RequestPageContent() {
           <p className="text-xs leading-5 text-slate-500">Your request will be sent to the rider for review.</p>
           <button
             type="submit"
-            disabled={isSubmitting}
+            disabled={isSubmitting || !configLoaded || locations.length < 2}
             className="inline-flex h-12 items-center justify-center rounded-xl bg-mobility-600 px-6 text-sm font-semibold text-white transition-colors hover:bg-mobility-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-mobility-600/20 disabled:cursor-wait disabled:opacity-60"
           >
-            {isSubmitting ? "Submitting…" : "Request Toto"}
+            {isSubmitting ? "Submitting…" : `Request ${vehicleName}`}
           </button>
         </div>
       </form>
@@ -390,18 +424,22 @@ function RequestPageContent() {
                   <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-600">
                     <p className="flex items-center gap-2"><CalendarDays aria-hidden="true" className="size-4 shrink-0 text-mobility-600" />{scheduled.date}{scheduled.time ? ` · ${scheduled.time}` : ""}</p>
                     <p className="flex items-center gap-2"><Users aria-hidden="true" className="size-4 shrink-0 text-mobility-600" />{ride.passengers.length} {ride.passengers.length === 1 ? "passenger" : "passengers"}</p>
+                    <p>{scheduled.time || "Start"} → {formatDateTime(getRideEstimatedEndAt(ride)).time || "End"} · {getRideDurationMinutes(ride)} min</p>
                   </div>
+                  {ride.status === "waitlisted" && <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">This time overlaps another confirmed ride. Your request is waiting for availability.</p>}
+                  {ride.status === "cancelled" && ride.cancellationReason && <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">Cancellation reason: {ride.cancellationReason}</p>}
                   <div className="mt-4 border-t border-slate-100 pt-4">
                     <p className="text-sm font-semibold text-slate-800">Passengers</p>
                     <ul className="mt-2 space-y-2">
                       {ride.passengers.map((passenger, index) => (
                         <li key={`${ride._id ?? ride.createdAt}-${index}`} className="flex flex-wrap items-center justify-between gap-2 text-sm">
                           <span className="min-w-0 break-words text-slate-600">{passenger.name}</span>
-                          <PassengerStatusBadge status={passenger.pickupStatus} />
+                          <PassengerRideStatusBadge rideStatus={ride.status} pickupStatus={passenger.pickupStatus} />
                         </li>
                       ))}
                     </ul>
                   </div>
+                  {(ride.status === "pending" || ride.status === "waitlisted") && <div className="mt-4 flex justify-end border-t border-slate-100 pt-4"><CancelRideControl ride={ride} onCancelled={() => { setSuccessMessage("Your ride request was cancelled."); void refreshMyRequests(); }} /></div>}
                 </article>
               );
             })}
@@ -415,7 +453,7 @@ function RequestPageContent() {
 
 export default function RequestPage() {
   return (
-    <AuthGuard allowedFor="REQUESTER">
+    <AuthGuard allowedFor="requester">
       <RequestPageContent />
     </AuthGuard>
   );

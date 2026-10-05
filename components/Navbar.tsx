@@ -23,9 +23,9 @@ export default function Navbar() {
   if (pathname === "/login" || !user) return null;
 
   const links =
-    isAdmin(user.role)
-      ? [{ href: "/admin", label: "Admin Dashboard" }]
-      : isRider(user.role)
+    isAdmin(user.role, user.category)
+      ? [{ href: "/admin", label: "Admin Dashboard" }, { href: "/admin/settings", label: "Settings" }]
+      : isRider(user.role, user.category)
       ? [{ href: "/rider", label: "Dashboard" }]
       : [{ href: "/request", label: "Request Ride" }];
   links.push({ href: "/history", label: "History" });
@@ -42,7 +42,7 @@ export default function Navbar() {
         aria-label="Main navigation"
         className="mx-auto flex min-h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8"
       >
-        <Link href={getRoleHome(user.role)} className="flex min-w-0 items-center gap-3 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mobility-600 focus-visible:ring-offset-2">
+        <Link href={getRoleHome(user.role, user.category)} className="flex min-w-0 items-center gap-3 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mobility-600 focus-visible:ring-offset-2">
           <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-mobility-600 text-white">
             <BusFront aria-hidden="true" className="size-5" />
           </span>
@@ -70,7 +70,7 @@ export default function Navbar() {
             <ThemeToggle />
             <div className="text-right leading-tight">
               <p className="max-w-40 truncate text-sm font-semibold text-slate-900">{user.name}</p>
-              <p className="mt-1 text-xs text-slate-500">{getRoleLabel(user.role)}</p>
+              <p className="mt-1 text-xs text-slate-500">{getRoleLabel(user.role, user.category, user.roleName)}</p>
             </div>
             <button
               type="button"
@@ -103,7 +103,7 @@ export default function Navbar() {
           <div className="mx-auto flex max-w-7xl flex-col gap-1 sm:px-2">
             <div className="mb-2 border-b border-slate-100 px-3 py-2">
               <p className="truncate text-sm font-semibold text-slate-900">{user.name}</p>
-              <p className="mt-1 text-xs text-slate-500">{getRoleLabel(user.role)}</p>
+              <p className="mt-1 text-xs text-slate-500">{getRoleLabel(user.role, user.category, user.roleName)}</p>
             </div>
             {links.map((link) => (
               <Link

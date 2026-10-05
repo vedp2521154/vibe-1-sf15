@@ -8,7 +8,8 @@ export async function POST(_request: Request, context: RouteContext<"/api/rides/
   if (!rideId) return Response.json({ error: "Ride request not found." }, { status: 404 });
 
   try {
-    return Response.json({ ride: await acceptRide(rideId) });
+    const ride = await acceptRide(rideId);
+    return Response.json({ ride, message: ride.status === "waitlisted" ? "This request overlaps a confirmed ride and was added to the waitlist." : undefined });
   } catch (error) {
     return rideActionError(error, "accept");
   }

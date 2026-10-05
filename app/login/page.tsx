@@ -4,15 +4,11 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, BusFront, BriefcaseBusiness, Check, GraduationCap, History, ShieldCheck, Sparkles, Zap } from "lucide-react";
 import { getUser, saveUser } from "@/lib/session";
-import { getRoleHome, type UserRole } from "@/lib/types";
+import { getRoleHome, type RoleCategory, type UserRole } from "@/lib/types";
 import ThemeToggle from "@/components/ThemeToggle";
 
-const roles: { value: UserRole; label: string; description: string; icon: typeof GraduationCap }[] = [
-  { value: "student", label: "Student", description: "Request campus rides", icon: GraduationCap },
-  { value: "employee", label: "Employee", description: "Travel between campus locations", icon: BriefcaseBusiness },
-  { value: "rider", label: "Rider", description: "Manage ride requests", icon: BusFront },
-  { value: "admin", label: "Admin / Mobility Desk", description: "Monitor mobility operations", icon: ShieldCheck },
-];
+interface LoginRole { slug: UserRole; name: string; category: RoleCategory }
+interface RolesResponse { roles?: LoginRole[]; error?: string }
 
 const features = [
   { icon: Zap, label: "Quick ride requests" },
@@ -24,12 +20,28 @@ export default function LoginPage() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [role, setRole] = useState<UserRole | "">("");
+  const [roles, setRoles] = useState<LoginRole[]>([]);
+  const [rolesLoading, setRolesLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
     const user = getUser();
-    if (user) router.replace(getRoleHome(user.role));
+    if (user) router.replace(getRoleHome(user.role, user.category));
   }, [router]);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/config/roles", { cache: "no-store" })
+      .then(async (response) => {
+        const result = await response.json() as RolesResponse;
+        if (!response.ok) throw new Error(result.error ?? "Could not load available roles.");
+        return result.roles ?? [];
+      })
+      .then((loadedRoles) => { if (active) { setRoles(loadedRoles); setError(""); } })
+      .catch((cause: unknown) => { if (active) setError(cause instanceof Error ? cause.message : "Could not load available roles."); })
+      .finally(() => { if (active) setRolesLoading(false); });
+    return () => { active = false; };
+  }, []);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -45,8 +57,10 @@ export default function LoginPage() {
       return;
     }
 
-    saveUser({ name: trimmedName, role });
-    router.replace(getRoleHome(role));
+    const selectedRole = roles.find((entry) => entry.slug === role);
+    if (!selectedRole) { setError("Choose an available role to continue."); return; }
+    saveUser({ name: trimmedName, role: selectedRole.slug, category: selectedRole.category, roleName: selectedRole.name });
+    router.replace(getRoleHome(selectedRole.slug, selectedRole.category));
   }
 
   return (
@@ -117,7 +131,7 @@ export default function LoginPage() {
               </svg>
             </div>
             <div className="relative flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 text-xs font-medium text-slate-500 sm:pt-4 sm:text-sm">
-              <span>One Toto. Shared rides.</span>
+              <span>One vehicle. Shared rides.</span>
               <span className="inline-flex items-center gap-1.5 text-mobility-800"><span aria-hidden="true" className="size-2 rounded-full bg-mobility-500" /> Flexible pickup &amp; drop points</span>
             </div>
           </div>
@@ -146,11 +160,13 @@ export default function LoginPage() {
             <fieldset className="mt-5 sm:mt-6">
               <legend className="mb-3 text-sm font-semibold text-slate-800">I’m here as a</legend>
               <div className="grid gap-2.5 sm:grid-cols-2">
-                {roles.map(({ value, label, description, icon: Icon }) => {
-                  const selected = role === value;
+                {roles.map((entry) => {
+                  const Icon = entry.category === "requester" ? (entry.slug === "student" ? GraduationCap : BriefcaseBusiness) : entry.category === "rider" ? BusFront : ShieldCheck;
+                  const selected = role === entry.slug;
+                  const description = entry.category === "requester" ? "Request campus rides" : entry.category === "rider" ? "Manage ride requests" : "Monitor mobility operations";
                   return (
                     <label
-                      key={value}
+                      key={entry.slug}
                       className={`group flex min-h-[4.6rem] cursor-pointer items-start gap-2.5 rounded-xl border p-3 transition-[border-color,background-color,box-shadow] duration-150 focus-within:ring-2 focus-within:ring-mobility-600 focus-within:ring-offset-1 sm:items-center sm:gap-3 sm:p-3.5 ${
                         selected
                           ? "border-mobility-500 bg-mobility-50 text-mobility-800 shadow-sm shadow-mobility-500/5"
@@ -160,16 +176,16 @@ export default function LoginPage() {
                       <input
                         type="radio"
                         name="role"
-                        value={value}
+                        value={entry.slug}
                         checked={selected}
-                        onChange={() => setRole(value)}
+                        onChange={() => setRole(entry.slug)}
                         className="mt-1 size-4 shrink-0 accent-mobility-600 sm:mt-0"
                       />
                       <span className={`grid size-9 shrink-0 place-items-center rounded-lg transition-colors duration-150 ${selected ? "bg-white text-mobility-700" : "bg-slate-100 text-slate-600 group-hover:bg-white group-hover:text-mobility-700"}`}>
                         <Icon aria-hidden="true" className="size-[1.125rem]" />
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-semibold leading-5 text-slate-900">{label}</span>
+                        <span className="block text-sm font-semibold leading-5 text-slate-900">{entry.name}</span>
                         <span className="mt-0.5 block text-xs leading-4 text-slate-500">{description}</span>
                       </span>
                       {selected && <Check aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-mobility-700 sm:mt-0" />}
@@ -177,13 +193,16 @@ export default function LoginPage() {
                   );
                 })}
               </div>
+              {rolesLoading && <p className="mt-3 text-sm text-slate-500" role="status">Loading roles…</p>}
+              {!rolesLoading && roles.length === 0 && <p className="mt-3 text-sm text-slate-500">No active roles are available.</p>}
             </fieldset>
 
             {error && <p id="login-error" className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-3.5 py-3 text-sm font-medium text-rose-700" role="alert">{error}</p>}
 
             <button
               type="submit"
-              className="mt-5 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-mobility-600 px-5 text-sm font-semibold text-white transition-colors duration-150 hover:bg-mobility-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-mobility-600/20 sm:mt-6"
+              disabled={rolesLoading || roles.length === 0}
+              className="mt-5 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-mobility-600 px-5 text-sm font-semibold text-white transition-colors duration-150 hover:bg-mobility-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-mobility-600/20 disabled:cursor-not-allowed disabled:opacity-50 sm:mt-6"
             >
               Continue
               <ArrowRight aria-hidden="true" className="size-4" />

@@ -3,22 +3,20 @@
 import { useEffect, useSyncExternalStore, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { getSessionSnapshot, parseSessionUser, subscribeToSession } from "@/lib/session";
-import { getRoleCategory, getRoleHome, type RoleCategory, type UserRole } from "@/lib/types";
+import { getRoleCategory, getRoleHome, type RoleCategory } from "@/lib/types";
 
 interface AuthGuardProps {
   children: ReactNode;
-  allowedFor?: UserRole | RoleCategory;
+  allowedFor?: RoleCategory;
 }
 
 function subscribeToNothing(): () => void {
   return () => {};
 }
 
-function isAllowed(role: UserRole, allowedFor?: UserRole | RoleCategory): boolean {
+function isAllowed(role: string, category: RoleCategory, allowedFor?: RoleCategory): boolean {
   if (!allowedFor) return true;
-  if (allowedFor === "REQUESTER") return getRoleCategory(role) === "REQUESTER";
-  if (allowedFor === "RIDER" || allowedFor === "ADMIN") return getRoleCategory(role) === allowedFor;
-  return role === allowedFor;
+  return getRoleCategory(role, category) === allowedFor;
 }
 
 export default function AuthGuard({ children, allowedFor }: AuthGuardProps) {
@@ -31,7 +29,8 @@ export default function AuthGuard({ children, allowedFor }: AuthGuardProps) {
   const hasHydrated = useSyncExternalStore(subscribeToNothing, () => true, () => false);
   const user = parseSessionUser(session);
   const userRole = user?.role;
-  const authorized = hasHydrated && userRole !== undefined && isAllowed(userRole, allowedFor);
+  const userCategory = user?.category;
+  const authorized = hasHydrated && userRole !== undefined && userCategory !== undefined && isAllowed(userRole, userCategory, allowedFor);
 
   useEffect(() => {
     if (!hasHydrated) return;
@@ -41,10 +40,10 @@ export default function AuthGuard({ children, allowedFor }: AuthGuardProps) {
       return;
     }
 
-    if (!isAllowed(userRole, allowedFor)) {
-      router.replace(getRoleHome(userRole));
+    if (userCategory && !isAllowed(userRole, userCategory, allowedFor)) {
+      router.replace(getRoleHome(userRole, userCategory));
     }
-  }, [allowedFor, hasHydrated, router, userRole]);
+  }, [allowedFor, hasHydrated, router, userCategory, userRole]);
 
   if (!authorized) {
     return (

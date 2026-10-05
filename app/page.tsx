@@ -15,7 +15,7 @@ export default function HomePage() {
       return;
     }
 
-    router.replace(getRoleHome(user.role));
+    router.replace(getRoleHome(user.role, user.category));
   }, [router]);
 
   return (

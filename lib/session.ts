@@ -1,4 +1,4 @@
-import { isUserRole, type SessionUser } from "@/lib/types";
+import { getBuiltInRoleCategory, getRoleLabel, isRoleCategory, isUserRole, type SessionUser } from "@/lib/types";
 
 const SESSION_KEY = "mobility-desk-user";
 const SESSION_EVENT = "mobility-desk-session-change";
@@ -41,7 +41,16 @@ export function parseSessionUser(storedUser: string | null): SessionUser | null 
       return null;
     }
 
-    return { name: parsed.name, role: parsed.role };
+    const category =
+      getBuiltInRoleCategory(parsed.role) ??
+      ("category" in parsed && isRoleCategory(parsed.category) ? parsed.category : null);
+    if (!category) return null;
+
+    const roleName = "roleName" in parsed && typeof parsed.roleName === "string"
+      ? parsed.roleName
+      : getRoleLabel(parsed.role, category);
+
+    return { name: parsed.name, role: parsed.role, category, roleName };
   } catch {
     return null;
   }

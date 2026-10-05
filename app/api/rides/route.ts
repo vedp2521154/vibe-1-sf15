@@ -1,17 +1,14 @@
 import { getDatabase } from "@/lib/mongodb";
-import { MAX_PASSENGERS_PER_RIDE } from "@/lib/rideLimits";
-import { listCompletedRides, listRiderRides, rideActionError } from "@/lib/ridesStore";
-import { isLocationName, isRequester, type Ride } from "@/lib/types";
+import { createScheduledRide, listCompletedRides, listRiderRides, RideStoreError, rideActionError, searchRideHistory } from "@/lib/ridesStore";
+import { findRoleBySlug, getMobilitySettings, listLocations } from "@/lib/configStore";
+import { requestUsesAdminRole } from "@/lib/adminAuthorization";
+import { isLocationName, isUserRole, type Ride } from "@/lib/types";
+import { calculateEstimatedEndAt, DEFAULT_RIDE_DURATION_MINUTES } from "@/lib/scheduling";
 
-type RequesterRole = Ride["requestedBy"]["role"];
 type StoredRide = Omit<Ride, "_id">;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isRequesterRole(value: unknown): value is RequesterRole {
-  return isRequester(value);
 }
 
 function isValidScheduledAt(value: unknown): value is string {
@@ -66,28 +63,66 @@ export async function GET(request: Request) {
 
   if (searchParams.get("view") === "history") {
     const historyRole = searchParams.get("role");
-    if (historyRole === "rider" || historyRole === "admin") {
+    if (historyRole && isUserRole(historyRole)) {
       try {
-        return Response.json({ rides: await listCompletedRides() });
+        const roleConfig = await findRoleBySlug(historyRole, true);
+        if (!roleConfig) return Response.json({ error: "The history role is invalid." }, { status: 400 });
+        const archived = searchParams.get("archived") === "true";
+        if (archived && (roleConfig.category !== "admin" || !(await requestUsesAdminRole(request)))) {
+          return Response.json({ error: "Only Admin can view archived trips." }, { status: 403 });
+        }
+        const pageParam = searchParams.get("page");
+        if (pageParam !== null) {
+          const page = Number(pageParam);
+          const requestedSize = Number(searchParams.get("pageSize") ?? "10");
+          const pageSize = [10, 20, 50].includes(requestedSize) ? requestedSize : 10;
+          if (!Number.isInteger(page) || page < 1) return Response.json({ error: "Page must be a positive integer." }, { status: 400 });
+
+          let dateFrom: string | undefined;
+          let dateBefore: string | undefined;
+          const range = searchParams.get("range");
+          if (range === "today" || range === "7" || range === "30") {
+            const end = new Date();
+            end.setUTCHours(0, 0, 0, 0);
+            end.setUTCDate(end.getUTCDate() + 1);
+            dateBefore = end.toISOString().slice(0, 10);
+            if (range === "today") dateFrom = new Date(end.getTime() - 86400000).toISOString().slice(0, 10);
+            else dateFrom = new Date(end.getTime() - (Number(range) - 1) * 86400000).toISOString().slice(0, 10);
+          } else {
+            const fromValue = searchParams.get("dateFrom");
+            const toValue = searchParams.get("dateTo");
+            if (fromValue && /^\d{4}-\d{2}-\d{2}$/.test(fromValue)) dateFrom = fromValue;
+            if (toValue && /^\d{4}-\d{2}-\d{2}$/.test(toValue)) {
+              const nextDate = new Date(`${toValue}T00:00:00.000Z`);
+              nextDate.setUTCDate(nextDate.getUTCDate() + 1);
+              dateBefore = nextDate.toISOString().slice(0, 10);
+            }
+          }
+          const pickupStatus = searchParams.get("pickupStatus");
+          if (pickupStatus && pickupStatus !== "boarded" && pickupStatus !== "missed") return Response.json({ error: "Passenger status filter is invalid." }, { status: 400 });
+          if (roleConfig.category === "requester" && !searchParams.get("name")?.trim()) return Response.json({ error: "A name is required to load trip history." }, { status: 400 });
+          const result = await searchRideHistory({
+            archived,
+            passengerName: roleConfig.category === "requester" ? searchParams.get("name")?.trim() || undefined : undefined,
+            search: searchParams.get("search") ?? undefined,
+            dateFrom,
+            dateBefore,
+            pickupStatus: pickupStatus ? pickupStatus as "boarded" | "missed" : undefined,
+            sort: searchParams.get("sort") === "oldest" ? "oldest" : "newest",
+            page,
+            pageSize,
+          });
+          return Response.json(result);
+        }
+        if (roleConfig.category !== "requester") return Response.json({ rides: await listCompletedRides() });
+        const passengerName = searchParams.get("name")?.trim();
+        if (!passengerName) return Response.json({ error: "A name is required to load trip history." }, { status: 400 });
+        return Response.json({ rides: await listCompletedRides(passengerName) });
       } catch (error) {
         return rideActionError(error, "load ride history");
       }
     }
-
-    if (!isRequester(historyRole)) {
-      return Response.json({ error: "The history role is invalid." }, { status: 400 });
-    }
-
-    const passengerName = searchParams.get("name")?.trim();
-    if (!passengerName) {
-      return Response.json({ error: "A name is required to load trip history." }, { status: 400 });
-    }
-
-    try {
-      return Response.json({ rides: await listCompletedRides(passengerName) });
-    } catch (error) {
-      return rideActionError(error, "load ride history");
-    }
+    return Response.json({ error: "The history role is invalid." }, { status: 400 });
   }
 
   const requestedBy = searchParams.get("requestedBy")?.trim();
@@ -97,15 +132,20 @@ export async function GET(request: Request) {
     return Response.json({ error: "A requester name is required." }, { status: 400 });
   }
 
-  if (role !== null && !isRequesterRole(role)) {
-    return Response.json({ error: "The requester role is invalid." }, { status: 400 });
-  }
-
-  const filter = role
-    ? { "requestedBy.name": requestedBy, "requestedBy.role": role }
-    : { "requestedBy.name": requestedBy };
-
   try {
+    if (role !== null) {
+      if (!isUserRole(role)) return Response.json({ error: "The requester role is invalid." }, { status: 400 });
+      const config = await findRoleBySlug(role, true);
+      if (!config || config.category !== "requester") return Response.json({ error: "The requester role is invalid." }, { status: 400 });
+    }
+    const filter = {
+      $and: [
+        role
+          ? { "requestedBy.name": requestedBy, "requestedBy.role": role }
+          : { "requestedBy.name": requestedBy },
+        { $or: [{ archived: false }, { archived: { $exists: false } }] },
+      ],
+    };
     const database = await getDatabase();
     const rides = await database
       .collection<StoredRide>("rides")
@@ -141,31 +181,36 @@ export async function POST(request: Request) {
     return Response.json({ error: "A requester name is required." }, { status: 400 });
   }
 
-  if (!isRequesterRole(requesterRole)) {
-    return Response.json({ error: "Only students and employees can request rides." }, { status: 400 });
-  }
-
-  if (!isLocationName(body.from) || !isLocationName(body.to)) {
-    return Response.json({ error: "Choose a valid pickup and destination location." }, { status: 400 });
-  }
-
-  if (body.from === body.to) {
-    return Response.json({ error: "Pickup and destination must be different." }, { status: 400 });
-  }
-
-  if (!isValidScheduledAt(body.scheduledAt)) {
-    return Response.json({ error: "Choose a valid date and time for the ride." }, { status: 400 });
+  if (typeof requesterRole !== "string" || !isUserRole(requesterRole)) {
+    return Response.json({ error: "Choose a valid requester role." }, { status: 400 });
   }
 
   if (!Array.isArray(body.passengers)) {
     return Response.json({ error: "Add at least one passenger." }, { status: 400 });
   }
 
-  if (body.passengers.length > MAX_PASSENGERS_PER_RIDE) {
-    return Response.json(
-      { error: "A Toto can carry a maximum of 5 passengers." },
-      { status: 400 },
-    );
+  let roleConfig;
+  let availableLocations;
+  let mobilitySettings;
+  try {
+    [roleConfig, availableLocations, mobilitySettings] = await Promise.all([
+      findRoleBySlug(requesterRole, false), listLocations(), getMobilitySettings(),
+    ]);
+  } catch (error) { return databaseErrorResponse(error, "create"); }
+  if (!roleConfig || roleConfig.category !== "requester") return Response.json({ error: "This requester role is unavailable." }, { status: 400 });
+  if (body.passengers.length > mobilitySettings.passengerCapacity) return Response.json({ error: `A ${mobilitySettings.vehicleName} can carry a maximum of ${mobilitySettings.passengerCapacity} passengers.` }, { status: 400 });
+  const allowedLocations = new Map(availableLocations.map((location) => [location.name.toLocaleLowerCase("en-US"), location.name]));
+  if (!isLocationName(body.from) || !isLocationName(body.to)) return Response.json({ error: "Choose a valid pickup and destination location." }, { status: 400 });
+  const from = allowedLocations.get(body.from.trim().toLocaleLowerCase("en-US"));
+  const to = allowedLocations.get(body.to.trim().toLocaleLowerCase("en-US"));
+  if (!from || !to) return Response.json({ error: "Choose active pickup and destination locations." }, { status: 400 });
+  if (from === to) return Response.json({ error: "Pickup and destination must be different." }, { status: 400 });
+  if (!isValidScheduledAt(body.scheduledAt)) return Response.json({ error: "Choose a valid date and time for the ride." }, { status: 400 });
+  const estimatedDurationMinutes = body.estimatedDurationMinutes === undefined
+    ? DEFAULT_RIDE_DURATION_MINUTES
+    : body.estimatedDurationMinutes;
+  if (!Number.isInteger(estimatedDurationMinutes) || (estimatedDurationMinutes as number) < 10 || (estimatedDurationMinutes as number) > 180) {
+    return Response.json({ error: "Trip duration must be a whole number from 10 to 180 minutes." }, { status: 400 });
   }
 
   const passengerNames: string[] = [];
@@ -184,24 +229,22 @@ export async function POST(request: Request) {
 
   const ride: StoredRide = {
     requestedBy: { name: requesterName.trim(), role: requesterRole },
-    from: body.from,
-    to: body.to,
+    from,
+    to,
     scheduledAt: body.scheduledAt,
     passengers: passengerNames.map((name) => ({ name, pickupStatus: "pending" })),
     status: "pending",
     createdAt: new Date().toISOString(),
     completedAt: null,
+    estimatedDurationMinutes: estimatedDurationMinutes as number,
+    estimatedEndAt: calculateEstimatedEndAt(body.scheduledAt, estimatedDurationMinutes as number),
   };
 
   try {
-    const database = await getDatabase();
-    const result = await database.collection<StoredRide>("rides").insertOne(ride);
-
-    return Response.json(
-      { ride: { ...ride, _id: result.insertedId.toString() } },
-      { status: 201 },
-    );
+    const created = await createScheduledRide(ride);
+    return Response.json({ ride: created }, { status: 201 });
   } catch (error) {
+    if (error instanceof RideStoreError) return rideActionError(error, "create");
     return databaseErrorResponse(error, "create");
   }
 }

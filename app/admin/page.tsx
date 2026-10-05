@@ -1,12 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Activity, AlertTriangle, BusFront, CheckCircle2, Clock3, RefreshCw, ShieldCheck } from "lucide-react";
+import type { ReactNode } from "react";
+import { Activity, AlertTriangle, BusFront, CheckCircle2, Clock3, RefreshCw, ShieldCheck, XCircle } from "lucide-react";
 import AuthGuard from "@/components/AuthGuard";
 import { PassengerStatusBadge, RideStatusBadge } from "@/components/StatusBadge";
 import { formatDateTime } from "@/lib/dateFormat";
 import { userFacingMessage } from "@/lib/userFacingMessage";
 import type { Ride } from "@/lib/types";
+import { useVehicleName } from "@/lib/useVehicleSettings";
+import CancelRideControl from "@/components/CancelRideControl";
+import { getRideDurationMinutes, getRideEstimatedEndAt } from "@/lib/scheduling";
 
 interface RideResponse {
   rides?: Ride[];
@@ -15,6 +19,7 @@ interface RideResponse {
 
 function RideDetails({ ride }: { ride: Ride }) {
   const scheduled = formatDateTime(ride.scheduledAt);
+  const end = formatDateTime(getRideEstimatedEndAt(ride));
 
   return (
     <>
@@ -26,7 +31,7 @@ function RideDetails({ ride }: { ride: Ride }) {
       </div>
       <p className="mt-2 flex items-start gap-2 text-sm text-slate-600">
         <Clock3 aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-mobility-600" />
-        <span>{scheduled.date}{scheduled.time ? ` · ${scheduled.time}` : ""}</span>
+        <span>{scheduled.date}{scheduled.time ? ` · ${scheduled.time}` : ""} → {end.time || "End"} · {getRideDurationMinutes(ride)} min</span>
       </p>
       <p className="mt-3 break-words text-sm text-slate-600">
         Requested by <span className="font-semibold text-slate-900">{ride.requestedBy.name}</span>
@@ -53,7 +58,7 @@ function PassengerList({ ride }: { ride: Ride }) {
   );
 }
 
-function EmptySection({ children }: { children: string }) {
+function EmptySection({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-28 flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white px-5 py-6 text-center text-sm text-slate-500">
       <BusFront aria-hidden="true" className="size-5 text-slate-400" />
@@ -89,6 +94,7 @@ function SummaryCard({ label, value, detail, icon: Icon, tone = "green" }: {
 }
 
 function AdminDashboard() {
+  const vehicleName = useVehicleName();
   const [rides, setRides] = useState<Ride[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
@@ -125,9 +131,11 @@ function AdminDashboard() {
     return () => { active = false; };
   }, [refreshKey]);
 
-  const activeRide = rides.find((ride) => ride.status === "accepted");
+  const acceptedRides = rides.filter((ride) => ride.status === "accepted");
   const pendingRides = rides.filter((ride) => ride.status === "pending");
+  const waitlistedRides = rides.filter((ride) => ride.status === "waitlisted");
   const clashRides = rides.filter((ride) => ride.status === "clash");
+  const cancelledRides = rides.filter((ride) => ride.status === "cancelled");
   const completedRides = rides.filter((ride) => ride.status === "completed");
   const count = (value: number) => isLoading ? "—" : String(value);
 
@@ -139,7 +147,7 @@ function AdminDashboard() {
             <ShieldCheck aria-hidden="true" className="size-4" /> Mobility operations
           </p>
           <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">Admin / Mobility Desk</h1>
-          <p className="mt-2 text-sm leading-6 text-slate-600">Monitor campus Toto operations.</p>
+          <p className="mt-2 text-sm leading-6 text-slate-600">Monitor campus {vehicleName} operations.</p>
         </div>
         <button
           type="button"
@@ -153,31 +161,30 @@ function AdminDashboard() {
 
       {error && <p className="mb-5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700" role="alert">{userFacingMessage(error, "Ride information is temporarily unavailable. Please try again shortly.")}</p>}
 
-      <section aria-label="Toto operations summary" className="mb-9 grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
+      <section aria-label={`${vehicleName} operations summary`} className="mb-9 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 sm:gap-4">
         <SummaryCard
-          label="Toto Status"
-          value={isLoading ? "Checking…" : error && rides.length === 0 ? "Unavailable" : activeRide ? "Busy" : "Available"}
-          detail={activeRide ? "A trip is currently active" : "Ready for a ride"}
+          label={`${vehicleName} Status`}
+          value={isLoading ? "Checking…" : error && rides.length === 0 ? "Unavailable" : acceptedRides.length ? "Scheduled" : "Available"}
+          detail={acceptedRides.length ? `${acceptedRides.length} confirmed time slot(s)` : "Ready for a ride"}
           icon={Activity}
-          tone={activeRide ? "amber" : "green"}
+          tone={acceptedRides.length ? "amber" : "green"}
         />
         <SummaryCard label="Pending Requests" value={count(pendingRides.length)} detail="Waiting for rider review" icon={Clock3} tone="slate" />
+        <SummaryCard label="Waitlisted" value={count(waitlistedRides.length)} detail="Waiting for a free time slot" icon={Clock3} tone="amber" />
+        <SummaryCard label="Cancelled" value={count(cancelledRides.length)} detail="Cancelled rides" icon={XCircle} tone="rose" />
         <SummaryCard label="Clash Requests" value={count(clashRides.length)} detail="Same-time conflicts" icon={AlertTriangle} tone="rose" />
         <SummaryCard label="Completed Trips" value={count(completedRides.length)} detail="Trips in ride history" icon={CheckCircle2} tone="green" />
       </section>
 
       <section aria-labelledby="admin-active-heading" className="mb-9">
         <div className="mb-4">
-          <p className="text-sm font-semibold text-mobility-800">Toto status</p>
-          <h2 id="admin-active-heading" className="mt-1 text-xl font-semibold tracking-tight text-slate-950 sm:text-2xl">Current Active Ride</h2>
+          <p className="text-sm font-semibold text-mobility-800">{vehicleName} status</p>
+          <h2 id="admin-active-heading" className="mt-1 text-xl font-semibold tracking-tight text-slate-950 sm:text-2xl">Accepted Rides</h2>
         </div>
-        {isLoading ? <EmptySection>Loading the active ride…</EmptySection> : activeRide ? (
-          <article className="rounded-xl border border-mobility-300 bg-white p-5 shadow-sm sm:border-l-4 sm:p-6">
-            <RideDetails ride={activeRide} />
-            <PassengerList ride={activeRide} />
-          </article>
+        {isLoading ? <EmptySection>Loading accepted rides…</EmptySection> : acceptedRides.length ? (
+          <div className="grid gap-4 lg:grid-cols-2">{acceptedRides.map((ride) => <article key={ride._id ?? ride.createdAt} className="rounded-xl border border-mobility-300 bg-white p-5 shadow-sm sm:border-l-4 sm:p-6"><RideDetails ride={ride} /><PassengerList ride={ride} /><div className="mt-4 flex justify-end border-t border-slate-100 pt-4"><CancelRideControl ride={ride} onCancelled={() => setRefreshKey((current) => current + 1)} /></div></article>)}</div>
         ) : error && rides.length === 0 ? <EmptySection>Ride status is unavailable right now. Try refreshing.</EmptySection> : (
-          <EmptySection>No active ride. The Toto is available.</EmptySection>
+          <EmptySection>No accepted ride is currently in progress. The {vehicleName} is available.</EmptySection>
         )}
       </section>
 
@@ -197,10 +204,16 @@ function AdminDashboard() {
               <article key={ride._id ?? ride.createdAt} className="min-w-0 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
                 <RideDetails ride={ride} />
                 <PassengerList ride={ride} />
+                <div className="mt-4 flex justify-end border-t border-slate-100 pt-4"><CancelRideControl ride={ride} onCancelled={() => setRefreshKey((current) => current + 1)} /></div>
               </article>
             ))}
           </div>
         )}
+      </section>
+
+      <section aria-labelledby="admin-waitlisted-heading" className="mb-9">
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-3"><div><p className="text-sm font-semibold text-amber-700">Time conflicts</p><h2 id="admin-waitlisted-heading" className="mt-1 text-xl font-semibold tracking-tight text-slate-950 sm:text-2xl">Waitlisted Requests</h2></div>{!isLoading && <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">{waitlistedRides.length}</span>}</div>
+        {isLoading ? <EmptySection>Loading waitlisted requests…</EmptySection> : waitlistedRides.length === 0 ? <EmptySection>No waitlisted requests.</EmptySection> : <div className="grid gap-4 lg:grid-cols-2">{waitlistedRides.map((ride) => <article key={ride._id ?? ride.createdAt} className="rounded-xl border border-amber-200 bg-white p-5 shadow-sm sm:p-6"><RideDetails ride={ride} /><PassengerList ride={ride} /><p className="mt-3 text-sm text-amber-800">Waiting for a non-overlapping schedule window.</p><div className="mt-4 flex justify-end border-t border-slate-100 pt-4"><CancelRideControl ride={ride} onCancelled={() => setRefreshKey((current) => current + 1)} /></div></article>)}</div>}
       </section>
 
       <section aria-labelledby="admin-clash-heading" className="mb-9">
@@ -224,6 +237,8 @@ function AdminDashboard() {
           </div>
         )}
       </section>
+
+      {cancelledRides.length > 0 && <section aria-labelledby="admin-cancelled-heading" className="mb-9"><div className="mb-4"><p className="text-sm font-semibold text-slate-600">Audit trail</p><h2 id="admin-cancelled-heading" className="mt-1 text-xl font-semibold tracking-tight text-slate-950 sm:text-2xl">Cancelled Rides</h2></div><div className="grid gap-4 lg:grid-cols-2">{cancelledRides.map((ride) => <article key={ride._id ?? ride.createdAt} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"><RideDetails ride={ride} /><p className="mt-3 text-sm text-slate-700">Reason: {ride.cancellationReason || "Not provided"}</p>{ride.cancelledBy && <p className="mt-1 text-xs text-slate-500">Cancelled by {ride.cancelledBy.name} · {ride.cancelledAt ? formatDateTime(ride.cancelledAt).date : ""}</p>}</article>)}</div></section>}
 
       <section aria-labelledby="admin-completed-heading">
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
@@ -253,7 +268,7 @@ function AdminDashboard() {
 
 export default function AdminPage() {
   return (
-    <AuthGuard allowedFor="ADMIN">
+    <AuthGuard allowedFor="admin">
       <AdminDashboard />
     </AuthGuard>
   );
