@@ -2,20 +2,16 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { getUser } from "@/lib/session";
+import { loadServerSession } from "@/lib/session";
 import { getRoleHome } from "@/lib/types";
 
 export default function HomePage() {
   const router = useRouter();
 
   useEffect(() => {
-    const user = getUser();
-    if (!user) {
-      router.replace("/login");
-      return;
-    }
-
-    router.replace(getRoleHome(user.role, user.category));
+    void loadServerSession(true).then((user) => {
+      router.replace(user ? getRoleHome(user.role, user.category) : "/login");
+    });
   }, [router]);
 
   return (

@@ -24,14 +24,14 @@ export default function Navbar() {
 
   const links =
     isAdmin(user.role, user.category)
-      ? [{ href: "/admin", label: "Admin Dashboard" }, { href: "/admin/settings", label: "Settings" }]
+      ? [{ href: "/admin", label: "Admin Dashboard" }, { href: "/admin/users", label: "Users" }, { href: "/admin/settings", label: "Settings" }]
       : isRider(user.role, user.category)
       ? [{ href: "/rider", label: "Dashboard" }]
       : [{ href: "/request", label: "Request Ride" }];
   links.push({ href: "/history", label: "History" });
 
-  function handleLogout() {
-    logoutUser();
+  async function handleLogout() {
+    await logoutUser();
     setMenuOpen(false);
     router.replace("/login");
   }

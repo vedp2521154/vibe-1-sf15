@@ -113,7 +113,6 @@ function HistoryContent() {
       if (canManage && archivedView) query.set("archived", "true");
       fetch(`/api/rides?${query.toString()}`, {
         cache: "no-store",
-        headers: { "x-mobility-role": role },
       })
         .then(async (response) => {
           const result = await response.json() as RideResponse;
@@ -145,7 +144,7 @@ function HistoryContent() {
     try {
       const response = await fetch(url, {
         method,
-        headers: { "Content-Type": "application/json", "x-mobility-role": role },
+        headers: { "Content-Type": "application/json" },
         body: body ? JSON.stringify(body) : undefined,
       });
       const result = await response.json() as RideResponse;

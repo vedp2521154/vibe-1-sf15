@@ -1,9 +1,10 @@
-import { requestUsesAdminRole } from "@/lib/adminAuthorization";
+import { requireApiUser } from "@/lib/auth/server";
 import { parseRideObjectId, rideActionError, setRideArchived } from "@/lib/ridesStore";
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
-    if (!(await requestUsesAdminRole(request))) return Response.json({ error: "Only Admin can archive or restore trips." }, { status: 403 });
+    const auth = await requireApiUser(request, ["admin"]);
+    if (auth.response) return auth.response;
     const body: unknown = await request.json().catch(() => null);
     if (typeof body !== "object" || body === null || !("archived" in body) || typeof body.archived !== "boolean") {
       return Response.json({ error: "Provide archived as true or false." }, { status: 400 });

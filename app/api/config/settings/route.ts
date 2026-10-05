@@ -1,6 +1,9 @@
 import { getMobilitySettings, saveMobilitySettings } from "@/lib/configStore";
+import { requireApiUser } from "@/lib/auth/server";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const auth = await requireApiUser(request);
+  if (auth.response) return auth.response;
   try { return Response.json({ settings: await getMobilitySettings() }); }
   catch (error) {
     console.error("Mobility settings load failed:", error);
@@ -9,6 +12,8 @@ export async function GET() {
 }
 
 export async function PATCH(request: Request) {
+  const auth = await requireApiUser(request, ["admin"]);
+  if (auth.response) return auth.response;
   const body: unknown = await request.json().catch(() => null);
   if (typeof body !== "object" || body === null || !("vehicleName" in body) || typeof body.vehicleName !== "string" || !body.vehicleName.trim()) return Response.json({ error: "Enter a vehicle name." }, { status: 400 });
   if (body.vehicleName.trim().length > 40) return Response.json({ error: "Vehicle names must be 40 characters or fewer." }, { status: 400 });

@@ -2,13 +2,11 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, BusFront, BriefcaseBusiness, Check, GraduationCap, History, ShieldCheck, Sparkles, Zap } from "lucide-react";
-import { getUser, saveUser } from "@/lib/session";
-import { getRoleHome, type RoleCategory, type UserRole } from "@/lib/types";
+import Link from "next/link";
+import { ArrowRight, BusFront, History, Sparkles, Zap } from "lucide-react";
+import { loadServerSession, saveUser } from "@/lib/session";
+import { getRoleHome, type SessionUser } from "@/lib/types";
 import ThemeToggle from "@/components/ThemeToggle";
-
-interface LoginRole { slug: UserRole; name: string; category: RoleCategory }
-interface RolesResponse { roles?: LoginRole[]; error?: string }
 
 const features = [
   { icon: Zap, label: "Quick ride requests" },
@@ -18,49 +16,26 @@ const features = [
 
 export default function LoginPage() {
   const router = useRouter();
-  const [name, setName] = useState("");
-  const [role, setRole] = useState<UserRole | "">("");
-  const [roles, setRoles] = useState<LoginRole[]>([]);
-  const [rolesLoading, setRolesLoading] = useState(true);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const user = getUser();
-    if (user) router.replace(getRoleHome(user.role, user.category));
+    void loadServerSession(true).then((user) => { if (user) router.replace(getRoleHome(user.role, user.category)); });
   }, [router]);
 
-  useEffect(() => {
-    let active = true;
-    fetch("/api/config/roles", { cache: "no-store" })
-      .then(async (response) => {
-        const result = await response.json() as RolesResponse;
-        if (!response.ok) throw new Error(result.error ?? "Could not load available roles.");
-        return result.roles ?? [];
-      })
-      .then((loadedRoles) => { if (active) { setRoles(loadedRoles); setError(""); } })
-      .catch((cause: unknown) => { if (active) setError(cause instanceof Error ? cause.message : "Could not load available roles."); })
-      .finally(() => { if (active) setRolesLoading(false); });
-    return () => { active = false; };
-  }, []);
-
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const trimmedName = name.trim();
-
-    if (!trimmedName) {
-      setError("Please enter your name.");
-      return;
-    }
-
-    if (!role) {
-      setError("Please choose a role to continue.");
-      return;
-    }
-
-    const selectedRole = roles.find((entry) => entry.slug === role);
-    if (!selectedRole) { setError("Choose an available role to continue."); return; }
-    saveUser({ name: trimmedName, role: selectedRole.slug, category: selectedRole.category, roleName: selectedRole.name });
-    router.replace(getRoleHome(selectedRole.slug, selectedRole.category));
+    setBusy(true); setError("");
+    try {
+      const response = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password }) });
+      const result = await response.json() as { user?: SessionUser; error?: string };
+      if (!response.ok || !result.user) throw new Error(result.error ?? "Sign-in failed.");
+      saveUser(result.user);
+      router.replace(getRoleHome(result.user.role, result.user.category));
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Sign-in failed."); }
+    finally { setBusy(false); }
   }
 
   return (
@@ -141,73 +116,35 @@ export default function LoginPage() {
           <div className="mb-5 sm:mb-6">
             <p className="text-sm font-semibold text-mobility-800">Welcome</p>
             <h2 id="login-heading" className="mt-1 text-2xl font-bold tracking-tight text-slate-950 sm:text-[1.7rem]">Get started</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-600">Enter your name and choose how you’ll use the mobility desk.</p>
+            <p className="mt-2 text-sm leading-6 text-slate-600">Sign in with your account. Your access is based on your assigned role.</p>
           </div>
 
           <form onSubmit={handleSubmit} noValidate>
-            <label htmlFor="name" className="mb-2 block text-sm font-semibold text-slate-800">Your name</label>
+            <label htmlFor="username" className="mb-2 block text-sm font-semibold text-slate-800">Username</label>
             <input
-              id="name"
-              name="name"
-              autoComplete="name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="e.g. Aanya Sharma"
+              id="username"
+              name="username"
+              autoComplete="username"
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+              placeholder="Enter your username"
               className="h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-sm text-slate-950 outline-none placeholder:text-slate-400 transition-[border-color,box-shadow] duration-150 focus:border-mobility-600 focus:ring-4 focus:ring-mobility-600/10"
               aria-describedby={error ? "login-error" : undefined}
             />
-
-            <fieldset className="mt-5 sm:mt-6">
-              <legend className="mb-3 text-sm font-semibold text-slate-800">I’m here as a</legend>
-              <div className="grid gap-2.5 sm:grid-cols-2">
-                {roles.map((entry) => {
-                  const Icon = entry.category === "requester" ? (entry.slug === "student" ? GraduationCap : BriefcaseBusiness) : entry.category === "rider" ? BusFront : ShieldCheck;
-                  const selected = role === entry.slug;
-                  const description = entry.category === "requester" ? "Request campus rides" : entry.category === "rider" ? "Manage ride requests" : "Monitor mobility operations";
-                  return (
-                    <label
-                      key={entry.slug}
-                      className={`group flex min-h-[4.6rem] cursor-pointer items-start gap-2.5 rounded-xl border p-3 transition-[border-color,background-color,box-shadow] duration-150 focus-within:ring-2 focus-within:ring-mobility-600 focus-within:ring-offset-1 sm:items-center sm:gap-3 sm:p-3.5 ${
-                        selected
-                          ? "border-mobility-500 bg-mobility-50 text-mobility-800 shadow-sm shadow-mobility-500/5"
-                          : "border-slate-200 bg-white hover:border-mobility-300 hover:bg-mobility-50/50"
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="role"
-                        value={entry.slug}
-                        checked={selected}
-                        onChange={() => setRole(entry.slug)}
-                        className="mt-1 size-4 shrink-0 accent-mobility-600 sm:mt-0"
-                      />
-                      <span className={`grid size-9 shrink-0 place-items-center rounded-lg transition-colors duration-150 ${selected ? "bg-white text-mobility-700" : "bg-slate-100 text-slate-600 group-hover:bg-white group-hover:text-mobility-700"}`}>
-                        <Icon aria-hidden="true" className="size-[1.125rem]" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-semibold leading-5 text-slate-900">{entry.name}</span>
-                        <span className="mt-0.5 block text-xs leading-4 text-slate-500">{description}</span>
-                      </span>
-                      {selected && <Check aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-mobility-700 sm:mt-0" />}
-                    </label>
-                  );
-                })}
-              </div>
-              {rolesLoading && <p className="mt-3 text-sm text-slate-500" role="status">Loading roles…</p>}
-              {!rolesLoading && roles.length === 0 && <p className="mt-3 text-sm text-slate-500">No active roles are available.</p>}
-            </fieldset>
+            <label htmlFor="password" className="mb-2 mt-5 block text-sm font-semibold text-slate-800">Password</label>
+            <input id="password" name="password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required className="h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-sm text-slate-950 outline-none transition-[border-color,box-shadow] duration-150 focus:border-mobility-600 focus:ring-4 focus:ring-mobility-600/10" />
 
             {error && <p id="login-error" className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-3.5 py-3 text-sm font-medium text-rose-700" role="alert">{error}</p>}
 
             <button
               type="submit"
-              disabled={rolesLoading || roles.length === 0}
+              disabled={busy || !username.trim() || !password}
               className="mt-5 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-mobility-600 px-5 text-sm font-semibold text-white transition-colors duration-150 hover:bg-mobility-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-mobility-600/20 disabled:cursor-not-allowed disabled:opacity-50 sm:mt-6"
             >
-              Continue
+              {busy ? "Signing in…" : "Sign In"}
               <ArrowRight aria-hidden="true" className="size-4" />
             </button>
-            <p className="mt-3 text-center text-xs leading-5 text-slate-500">No password needed for this demo.</p>
+            <p className="mt-4 text-center text-sm text-slate-600">Need a requester account? <Link href="/register" className="font-semibold text-mobility-700 underline-offset-4 hover:underline">Register</Link></p>
           </form>
         </section>
       </div>

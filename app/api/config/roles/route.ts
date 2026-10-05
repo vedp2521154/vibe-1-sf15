@@ -1,4 +1,5 @@
 import { addRequesterRole, listRoles } from "@/lib/configStore";
+import { requireApiUser } from "@/lib/auth/server";
 
 function errorResponse(error: unknown) {
   if (error instanceof Error && (error.message.includes("already exists") || error.message.includes("required"))) {
@@ -11,11 +12,17 @@ function errorResponse(error: unknown) {
 export async function GET(request: Request) {
   try {
     const includeInactive = new URL(request.url).searchParams.get("includeInactive") === "true";
+    if (includeInactive) {
+      const auth = await requireApiUser(request, ["admin"]);
+      if (auth.response) return auth.response;
+    }
     return Response.json({ roles: await listRoles(includeInactive) });
   } catch (error) { return errorResponse(error); }
 }
 
 export async function POST(request: Request) {
+  const auth = await requireApiUser(request, ["admin"]);
+  if (auth.response) return auth.response;
   try {
     const body: unknown = await request.json();
     if (typeof body !== "object" || body === null || !("name" in body) || typeof body.name !== "string" || !body.name.trim()) {

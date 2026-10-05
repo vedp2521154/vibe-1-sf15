@@ -19,8 +19,6 @@ export default function CancelRideControl({ ride, onCancelled }: { ride: Ride; o
   const [saving, setSaving] = useState(false);
 
   if (!user || !allowedStatus || !ride._id) return null;
-  const actor = user;
-
   async function submitCancellation() {
     const cancellationReason = requester
       ? "User requested cancellation"
@@ -30,8 +28,8 @@ export default function CancelRideControl({ ride, onCancelled }: { ride: Ride; o
     try {
       const response = await fetch(`/api/rides/${ride._id}/cancel`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-mobility-role": actor.role },
-        body: JSON.stringify({ reason: cancellationReason, actorName: actor.name }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: cancellationReason }),
       });
       const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error ?? "This ride could not be cancelled.");

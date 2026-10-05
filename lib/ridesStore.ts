@@ -42,6 +42,21 @@ export async function listRiderRides(): Promise<Ride[]> {
   return results.map(serializeRide);
 }
 
+export async function listRequesterRides(userId: string, displayName: string, roleSlug: string): Promise<Ride[]> {
+  const rides = await ridesCollection();
+  const legacyName = displayName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const results = await rides.find({
+    $and: [
+      { $or: [
+        { "requestedBy.userId": userId },
+        { "requestedBy.userId": { $exists: false }, "requestedBy.name": { $regex: `^${legacyName}$`, $options: "i" }, "requestedBy.role": roleSlug },
+      ] },
+      { $or: [{ archived: false }, { archived: { $exists: false } }] },
+    ],
+  }).sort({ createdAt: -1 }).toArray();
+  return results.map(serializeRide);
+}
+
 export async function listCompletedRides(passengerName?: string): Promise<Ride[]> {
   const rides = await ridesCollection();
   const filter: Filter<StoredRide> = {
@@ -67,6 +82,9 @@ export async function listCompletedRides(passengerName?: string): Promise<Ride[]
 
 export interface RideHistoryQuery {
   passengerName?: string;
+  requesterUserId?: string;
+  requesterName?: string;
+  requesterRole?: string;
   archived: boolean;
   search?: string;
   dateFrom?: string;
@@ -106,6 +124,20 @@ export async function searchRideHistory(query: RideHistoryQuery): Promise<Pagina
         name: { $regex: `^${escaped}$`, $options: "i" },
         ...(query.pickupStatus ? { pickupStatus: query.pickupStatus } : {}),
       } } },
+    ] });
+  }
+  if (query.requesterUserId) {
+    const escaped = (query.requesterName ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    clauses.push({ $or: [
+      { "requestedBy.userId": query.requesterUserId },
+      { $and: [
+        { "requestedBy.userId": { $exists: false } },
+        { "requestedBy.role": query.requesterRole },
+        { $or: [
+          { "requestedBy.name": { $regex: `^${escaped}$`, $options: "i" } },
+          { passengers: { $elemMatch: { name: { $regex: `^${escaped}$`, $options: "i" } } } },
+        ] },
+      ] },
     ] });
   }
   if (query.search?.trim()) {
@@ -334,6 +366,7 @@ export async function completeRide(rideId: ObjectId): Promise<Ride> {
 }
 
 export interface RideCancellationActor {
+  userId: string;
   name: string;
   role: UserRole;
   category: RoleCategory;
@@ -349,7 +382,7 @@ export async function cancelRide(rideId: ObjectId, actor: RideCancellationActor,
     const ride = await rides.findOne({ _id: rideId });
     if (!ride) throw new RideStoreError("Ride request not found.", 404);
     if (actor.category === "requester") {
-      const ownsRide = ride.requestedBy.role === actor.role && ride.requestedBy.name.trim().toLocaleLowerCase("en-US") === actor.name.trim().toLocaleLowerCase("en-US");
+      const ownsRide = Boolean(ride.requestedBy.userId) && ride.requestedBy.userId === actor.userId;
       if (!ownsRide) throw new RideStoreError("You can only cancel your own ride request.", 403);
       if (ride.status !== "pending" && ride.status !== "waitlisted") throw new RideStoreError("Requesters can cancel only pending or waitlisted rides.", 409);
     } else if (actor.category === "rider" || actor.category === "admin") {
@@ -364,7 +397,7 @@ export async function cancelRide(rideId: ObjectId, actor: RideCancellationActor,
       { $set: {
         status: "cancelled",
         cancelledAt,
-        cancelledBy: { name: actor.name.trim(), role: actor.role },
+        cancelledBy: { userId: actor.userId, name: actor.name.trim(), role: actor.role },
         cancellationReason: cleanReason,
       } },
     );

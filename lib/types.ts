@@ -54,6 +54,8 @@ export interface SessionUser {
   role: UserRole;
   category: RoleCategory;
   roleName: string;
+  username?: string;
+  id?: string;
 }
 
 export type RideStatus = "pending" | "accepted" | "waitlisted" | "clash" | "completed" | "cancelled";
@@ -70,6 +72,7 @@ export interface Passenger {
 export interface Ride {
   _id?: string;
   requestedBy: {
+    userId?: string;
     name: string;
     role: string;
   };
@@ -84,7 +87,7 @@ export interface Ride {
   estimatedDurationMinutes?: number;
   estimatedEndAt?: string;
   cancelledAt?: string | null;
-  cancelledBy?: { name: string; role: string } | null;
+  cancelledBy?: { userId?: string; name: string; role: string } | null;
   cancellationReason?: string | null;
 }
 

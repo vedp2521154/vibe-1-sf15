@@ -3,6 +3,7 @@ import {
   rideActionError,
   updatePassengerPickupStatus,
 } from "@/lib/ridesStore";
+import { requireApiUser } from "@/lib/auth/server";
 
 export const runtime = "nodejs";
 
@@ -11,6 +12,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export async function PATCH(request: Request, context: RouteContext<"/api/rides/[id]/passenger">) {
+  const auth = await requireApiUser(request, ["rider", "admin"]);
+  if (auth.response) return auth.response;
   const { id } = await context.params;
   const rideId = parseRideObjectId(id);
   if (!rideId) return Response.json({ error: "Ride request not found." }, { status: 404 });
