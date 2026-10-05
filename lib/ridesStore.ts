@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import { getDatabase } from "@/lib/mongodb";
 import { calculateEstimatedEndAt, DEFAULT_RIDE_DURATION_MINUTES, ridesOverlap } from "@/lib/scheduling";
 import type { PickupStatus, Ride, RoleCategory, UserRole } from "@/lib/types";
+import { listActiveUserIdsByCategory } from "@/lib/auth/server";
+import { recordActivity, sendUserNotification, sendUserNotifications } from "@/lib/operationalEvents";
 
 type StoredRide = Omit<Ride, "_id">;
 
@@ -198,7 +200,7 @@ export async function setRideArchived(rideId: ObjectId, archived: boolean): Prom
   return serializeRide(updated);
 }
 
-export async function permanentlyDeleteArchivedRide(rideId: ObjectId): Promise<void> {
+export async function permanentlyDeleteArchivedRide(rideId: ObjectId): Promise<Ride> {
   const rides = await ridesCollection();
   const ride = await rides.findOne({ _id: rideId });
   if (!ride) throw new RideStoreError("Ride record not found.", 404);
@@ -207,6 +209,7 @@ export async function permanentlyDeleteArchivedRide(rideId: ObjectId): Promise<v
   }
   const result = await rides.deleteOne({ _id: rideId, status: "completed", archived: true });
   if (result.deletedCount !== 1) throw new RideStoreError("This trip changed before it could be deleted.", 409);
+  return serializeRide(ride);
 }
 
 async function ensureTotoState(state: Collection<TotoState>): Promise<void> {
@@ -241,14 +244,31 @@ export async function withScheduleLock<T>(operation: () => Promise<T>): Promise<
   }
 }
 
-async function moveOverlappingPendingToWaitlist(acceptedRide: Ride): Promise<void> {
+async function moveOverlappingPendingToWaitlist(acceptedRide: Ride, actor: ActivityActor): Promise<void> {
   const rides = await ridesCollection();
   const pending = await rides.find({ status: "pending" }).toArray();
-  const conflicts = pending.filter((ride) => ridesOverlap(acceptedRide, ride)).map((ride) => ride._id);
-  if (conflicts.length) await rides.updateMany({ _id: { $in: conflicts }, status: "pending" }, { $set: { status: "waitlisted" } });
+  const conflicts = pending.filter((ride) => ridesOverlap(acceptedRide, ride));
+  if (!conflicts.length) return;
+  const ids = conflicts.map((ride) => ride._id);
+  const result = await rides.updateMany({ _id: { $in: ids }, status: "pending" }, { $set: { status: "waitlisted" } });
+  if (!result.modifiedCount) return;
+  for (const ride of conflicts) {
+    const requester = ride.requestedBy.userId;
+    const rideId = ride._id.toString();
+    await Promise.all([
+      recordActivity({ action: "ride_waitlisted", actor, entityType: "ride", entityId: rideId, details: { from: ride.from, to: ride.to } }),
+      requester ? sendUserNotification({ userId: requester, type: "ride_waitlisted", title: "Ride added to waitlist", message: "Your ride overlaps a confirmed trip and is waiting for an available time.", rideId }) : Promise.resolve(),
+    ]);
+  }
 }
 
-export async function reevaluateWaitlist(): Promise<Ride[]> {
+export interface ActivityActor {
+  userId: string;
+  name: string;
+  role: string;
+}
+
+export async function reevaluateWaitlist(actor: ActivityActor): Promise<Ride[]> {
   const rides = await ridesCollection();
   const [accepted, waitlisted] = await Promise.all([
     rides.find({ status: "accepted" }).toArray(),
@@ -260,14 +280,21 @@ export async function reevaluateWaitlist(): Promise<Ride[]> {
     const result = await rides.updateOne({ _id: waitingRide._id, status: "waitlisted" }, { $set: { status: "pending" } });
     if (result.modifiedCount === 1) {
       const updated = await rides.findOne({ _id: waitingRide._id });
-      if (updated) promoted.push(serializeRide(updated));
+      if (updated) {
+        const ride = serializeRide(updated);
+        promoted.push(ride);
+        await Promise.all([
+          recordActivity({ action: "ride_waitlist_promoted", actor, entityType: "ride", entityId: ride._id, details: { from: ride.from, to: ride.to } }),
+          ride.requestedBy.userId ? sendUserNotification({ userId: ride.requestedBy.userId, type: "ride_available", title: "Ride request available", message: "Your waitlisted ride is now available for rider review.", rideId: ride._id }) : Promise.resolve(),
+        ]);
+      }
     }
   }
   return promoted;
 }
 
-export async function createScheduledRide(ride: StoredRide): Promise<Ride> {
-  return withScheduleLock(async () => {
+export async function createScheduledRide(ride: StoredRide, actor: ActivityActor): Promise<Ride> {
+  const created = await withScheduleLock(async () => {
     const database = await getDatabase();
     const rides = database.collection<StoredRide>("rides");
     const accepted = await rides.find({ status: "accepted" }).toArray();
@@ -280,9 +307,20 @@ export async function createScheduledRide(ride: StoredRide): Promise<Ride> {
     const result = await rides.insertOne(rideWithStatus);
     return { ...rideWithStatus, _id: result.insertedId.toString() };
   });
+  await recordActivity({ action: "ride_created", actor, entityType: "ride", entityId: created._id, details: { from: created.from, to: created.to, passengerCount: created.passengers.length } });
+  if (created.status === "waitlisted") {
+    await Promise.all([
+      recordActivity({ action: "ride_waitlisted", actor, entityType: "ride", entityId: created._id, details: { from: created.from, to: created.to } }),
+      sendUserNotification({ userId: actor.userId, type: "ride_waitlisted", title: "Ride added to waitlist", message: "Your requested time overlaps a confirmed trip. We’ll let you know when it becomes available.", rideId: created._id }),
+    ]);
+  } else {
+    const riderIds = await listActiveUserIdsByCategory("rider").catch(() => []);
+    await sendUserNotifications(riderIds, { type: "new_ride_request", title: "New ride request", message: `A ride request is waiting: ${created.from} → ${created.to}.`, rideId: created._id });
+  }
+  return created;
 }
 
-export async function acceptRide(rideId: ObjectId): Promise<Ride> {
+export async function acceptRide(rideId: ObjectId, actor: ActivityActor): Promise<Ride> {
   return withScheduleLock(async () => {
     const rides = await ridesCollection();
     const ride = await rides.findOne({ _id: rideId });
@@ -294,7 +332,12 @@ export async function acceptRide(rideId: ObjectId): Promise<Ride> {
       await rides.updateOne({ _id: rideId, status: "pending" }, { $set: { status: "waitlisted" } });
       const updated = await rides.findOne({ _id: rideId });
       if (!updated) throw new RideStoreError("Ride request not found.", 404);
-      return serializeRide(updated);
+      const waitlisted = serializeRide(updated);
+      await Promise.all([
+        recordActivity({ action: "ride_waitlisted", actor, entityType: "ride", entityId: waitlisted._id, details: { from: waitlisted.from, to: waitlisted.to } }),
+        waitlisted.requestedBy.userId ? sendUserNotification({ userId: waitlisted.requestedBy.userId, type: "ride_waitlisted", title: "Ride added to waitlist", message: "Your requested time overlaps a confirmed trip and is waiting for an available time.", rideId: waitlisted._id }) : Promise.resolve(),
+      ]);
+      return waitlisted;
     }
 
     const accepted = await rides.updateOne({ _id: rideId, status: "pending" }, { $set: { status: "accepted" } });
@@ -302,8 +345,12 @@ export async function acceptRide(rideId: ObjectId): Promise<Ride> {
     const updatedRide = await rides.findOne({ _id: rideId });
     if (!updatedRide) throw new RideStoreError("Ride request not found.", 404);
     const result = serializeRide(updatedRide);
-    await moveOverlappingPendingToWaitlist(result);
-    await reevaluateWaitlist();
+    await Promise.all([
+      recordActivity({ action: "ride_accepted", actor, entityType: "ride", entityId: result._id, details: { from: result.from, to: result.to } }),
+      result.requestedBy.userId ? sendUserNotification({ userId: result.requestedBy.userId, type: "ride_accepted", title: "Ride accepted", message: "Your ride request has been accepted.", rideId: result._id }) : Promise.resolve(),
+    ]);
+    await moveOverlappingPendingToWaitlist(result, actor);
+    await reevaluateWaitlist(actor);
     return result;
   });
 }
@@ -312,6 +359,7 @@ export async function updatePassengerPickupStatus(
   rideId: ObjectId,
   passengerIndex: number,
   pickupStatus: Exclude<PickupStatus, "pending">,
+  actor: ActivityActor,
 ): Promise<Ride> {
   const rides = await ridesCollection();
   const ride = await rides.findOne({ _id: rideId });
@@ -323,6 +371,7 @@ export async function updatePassengerPickupStatus(
   if (!Number.isInteger(passengerIndex) || passengerIndex < 0 || passengerIndex >= ride.passengers.length) {
     throw new RideStoreError("Passenger not found.", 404);
   }
+  if (ride.passengers[passengerIndex].pickupStatus === pickupStatus) return serializeRide(ride);
 
   const result = await rides.updateOne(
     { _id: rideId, status: "accepted" },
@@ -334,10 +383,16 @@ export async function updatePassengerPickupStatus(
 
   const updatedRide = await rides.findOne({ _id: rideId });
   if (!updatedRide) throw new RideStoreError("Ride request not found.", 404);
-  return serializeRide(updatedRide);
+  const updated = serializeRide(updatedRide);
+  await recordActivity({
+    action: pickupStatus === "boarded" ? "passenger_boarded" : "passenger_missed",
+    actor, entityType: "ride", entityId: updated._id,
+    details: { from: updated.from, to: updated.to, pickupStatus },
+  });
+  return updated;
 }
 
-export async function completeRide(rideId: ObjectId): Promise<Ride> {
+export async function completeRide(rideId: ObjectId, actor: ActivityActor): Promise<Ride> {
   return withScheduleLock(async () => {
     const rides = await ridesCollection();
     const ride = await rides.findOne({ _id: rideId });
@@ -349,7 +404,7 @@ export async function completeRide(rideId: ObjectId): Promise<Ride> {
     ) throw new RideStoreError("Mark every passenger as Boarded or Missed before completing the trip.", 409);
 
     const completedAt = new Date().toISOString();
-    const result = await rides.updateOne(
+    const updateResult = await rides.updateOne(
       {
         _id: rideId,
         status: "accepted",
@@ -357,11 +412,16 @@ export async function completeRide(rideId: ObjectId): Promise<Ride> {
       },
       { $set: { status: "completed", completedAt } },
     );
-    if (result.modifiedCount !== 1) throw new RideStoreError("Mark every passenger as Boarded or Missed before completing the trip.", 409);
-    await reevaluateWaitlist();
+    if (updateResult.modifiedCount !== 1) throw new RideStoreError("Mark every passenger as Boarded or Missed before completing the trip.", 409);
     const completedRide = await rides.findOne({ _id: rideId });
     if (!completedRide) throw new RideStoreError("Ride request not found.", 404);
-    return serializeRide(completedRide);
+    const completedResult = serializeRide(completedRide);
+    await Promise.all([
+      recordActivity({ action: "ride_completed", actor, entityType: "ride", entityId: completedResult._id, details: { from: completedResult.from, to: completedResult.to } }),
+      completedResult.requestedBy.userId ? sendUserNotification({ userId: completedResult.requestedBy.userId, type: "ride_completed", title: "Trip completed", message: "Your ride has been completed.", rideId: completedResult._id }) : Promise.resolve(),
+    ]);
+    await reevaluateWaitlist(actor);
+    return completedResult;
   });
 }
 
@@ -402,10 +462,15 @@ export async function cancelRide(rideId: ObjectId, actor: RideCancellationActor,
       } },
     );
     if (result.modifiedCount !== 1) throw new RideStoreError("This ride changed before it could be cancelled.", 409);
-    if (ride.status === "accepted") await reevaluateWaitlist();
+    if (ride.status === "accepted") await reevaluateWaitlist(actor);
     const cancelled = await rides.findOne({ _id: rideId });
     if (!cancelled) throw new RideStoreError("Ride request not found.", 404);
-    return serializeRide(cancelled);
+    const resultRide = serializeRide(cancelled);
+    await Promise.all([
+      recordActivity({ action: "ride_cancelled", actor, entityType: "ride", entityId: resultRide._id, details: { from: resultRide.from, to: resultRide.to, status: resultRide.status } }),
+      actor.category !== "requester" && resultRide.requestedBy.userId ? sendUserNotification({ userId: resultRide.requestedBy.userId, type: "ride_cancelled", title: "Ride cancelled", message: `${actor.name} cancelled your ride request.`, rideId: resultRide._id }) : Promise.resolve(),
+    ]);
+    return resultRide;
   });
 }
 

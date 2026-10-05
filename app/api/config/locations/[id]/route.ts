@@ -1,5 +1,6 @@
 import { setLocationActive } from "@/lib/configStore";
 import { requireApiUser } from "@/lib/auth/server";
+import { recordActivity } from "@/lib/operationalEvents";
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const auth = await requireApiUser(request, ["admin"]);
@@ -10,6 +11,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const { id } = await context.params;
     const location = await setLocationActive(id, body.active);
     if (!location) return Response.json({ error: "Location not found." }, { status: 404 });
+    await recordActivity({ action: body.active ? "location_enabled" : "location_disabled", actor: { userId: auth.user.id, name: auth.user.name, role: auth.user.role }, entityType: "location", entityId: location._id, details: { displayName: location.name } });
     return Response.json({ location });
   } catch (error) {
     console.error("Location update failed:", error);

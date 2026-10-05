@@ -127,7 +127,7 @@ export async function POST(request: Request) {
     estimatedEndAt: calculateEstimatedEndAt(body.scheduledAt, estimatedDurationMinutes as number),
   };
   try {
-    const created = await createScheduledRide(ride);
+    const created = await createScheduledRide(ride, { userId: user.id, name: user.name, role: user.role });
     return Response.json({ ride: created }, { status: 201 });
   } catch (error) {
     if (error instanceof RideStoreError) return rideActionError(error, "create");

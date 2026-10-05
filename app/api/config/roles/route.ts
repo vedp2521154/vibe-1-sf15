@@ -1,5 +1,6 @@
 import { addRequesterRole, listRoles } from "@/lib/configStore";
 import { requireApiUser } from "@/lib/auth/server";
+import { recordActivity } from "@/lib/operationalEvents";
 
 function errorResponse(error: unknown) {
   if (error instanceof Error && (error.message.includes("already exists") || error.message.includes("required"))) {
@@ -29,6 +30,8 @@ export async function POST(request: Request) {
       return Response.json({ error: "Enter a role name." }, { status: 400 });
     }
     if (body.name.trim().length > 50) return Response.json({ error: "Role names must be 50 characters or fewer." }, { status: 400 });
-    return Response.json({ role: await addRequesterRole(body.name) }, { status: 201 });
+    const role = await addRequesterRole(body.name);
+    await recordActivity({ action: "role_added", actor: { userId: auth.user.id, name: auth.user.name, role: auth.user.role }, entityType: "role", entityId: role._id, details: { roleName: role.name, role: role.slug } });
+    return Response.json({ role }, { status: 201 });
   } catch (error) { return errorResponse(error); }
 }

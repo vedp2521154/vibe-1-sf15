@@ -11,6 +11,8 @@ import type { Ride } from "@/lib/types";
 import { useVehicleName } from "@/lib/useVehicleSettings";
 import CancelRideControl from "@/components/CancelRideControl";
 import { getRideDurationMinutes, getRideEstimatedEndAt } from "@/lib/scheduling";
+import AdminAnalytics from "@/components/AdminAnalytics";
+import AdminRecentActivity from "@/components/AdminRecentActivity";
 
 interface RideResponse {
   rides?: Ride[];
@@ -175,6 +177,9 @@ function AdminDashboard() {
         <SummaryCard label="Clash Requests" value={count(clashRides.length)} detail="Same-time conflicts" icon={AlertTriangle} tone="rose" />
         <SummaryCard label="Completed Trips" value={count(completedRides.length)} detail="Trips in ride history" icon={CheckCircle2} tone="green" />
       </section>
+
+      <AdminAnalytics />
+      <AdminRecentActivity />
 
       <section aria-labelledby="admin-active-heading" className="mb-9">
         <div className="mb-4">

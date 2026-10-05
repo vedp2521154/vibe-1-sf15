@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState, useSyncExternalStore } from "react";
 import { BusFront, LogOut, Menu, X } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
+import NotificationBell from "@/components/NotificationBell";
 import { getSessionSnapshot, logoutUser, parseSessionUser, subscribeToSession } from "@/lib/session";
 import { getRoleHome, getRoleLabel, isAdmin, isRider } from "@/lib/types";
 import type { SessionUser } from "@/lib/types";
@@ -29,6 +30,7 @@ export default function Navbar() {
       ? [{ href: "/rider", label: "Dashboard" }]
       : [{ href: "/request", label: "Request Ride" }];
   links.push({ href: "/history", label: "History" });
+  links.push({ href: "/notifications", label: "Notifications" });
 
   async function handleLogout() {
     await logoutUser();
@@ -66,7 +68,8 @@ export default function Navbar() {
               {link.label}
             </Link>
           ))}
-          <div className="ml-3 flex items-center gap-3 border-l border-slate-200 pl-4">
+          <div className="ml-3 flex items-center gap-2 border-l border-slate-200 pl-4">
+            <NotificationBell />
             <ThemeToggle />
             <div className="text-right leading-tight">
               <p className="max-w-40 truncate text-sm font-semibold text-slate-900">{user.name}</p>
@@ -85,6 +88,7 @@ export default function Navbar() {
 
         <div className="flex items-center gap-2 md:hidden">
           <span className="hidden max-w-28 truncate text-xs font-medium text-slate-600 sm:block">{user.name}</span>
+          <NotificationBell />
           <ThemeToggle />
           <button
             type="button"

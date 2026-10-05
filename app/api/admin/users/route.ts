@@ -1,5 +1,6 @@
 import { createUser, isValidUsername, listSafeUsers, MIN_PASSWORD_LENGTH, normalizeUsername, requireApiUser, safeUser } from "@/lib/auth/server";
 import { findRoleBySlug } from "@/lib/configStore";
+import { recordActivity } from "@/lib/operationalEvents";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -35,6 +36,7 @@ export async function POST(request: Request) {
     const role = await findRoleBySlug(body.roleSlug, false);
     if (!role) return Response.json({ error: "Choose an active role." }, { status: 400 });
     const user = await createUser({ username, displayName, password: body.password, roleSlug: role.slug });
+    await recordActivity({ action: "user_created", actor: { userId: auth.user.id, name: auth.user.name, role: auth.user.role }, entityType: "user", entityId: user.id, details: { username: user.username, displayName: user.name, roleName: user.roleName } });
     return Response.json({ user: safeUser(user) }, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (duplicateUsername(error)) return Response.json({ error: "That username is already taken." }, { status: 409 });

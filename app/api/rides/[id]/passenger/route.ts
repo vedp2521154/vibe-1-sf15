@@ -42,6 +42,7 @@ export async function PATCH(request: Request, context: RouteContext<"/api/rides/
         rideId,
         body.passengerIndex as number,
         body.pickupStatus,
+        { userId: auth.user.id, name: auth.user.name, role: auth.user.role },
       ),
     });
   } catch (error) {

@@ -1,5 +1,6 @@
 import { createSession, createUser, AuthError, isSameOriginRequest, isValidUsername, MIN_PASSWORD_LENGTH, normalizeUsername, safeUser, sessionCookie } from "@/lib/auth/server";
 import { findRoleBySlug } from "@/lib/configStore";
+import { recordActivity } from "@/lib/operationalEvents";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -26,6 +27,7 @@ export async function POST(request: Request) {
     const role = await findRoleBySlug(body.roleSlug, false);
     if (!role || role.category !== "requester") return Response.json({ error: "Registration is available only for active requester roles." }, { status: 403 });
     const user = await createUser({ username, displayName, password: body.password, roleSlug: role.slug });
+    await recordActivity({ action: "user_created", actor: { userId: user.id, name: user.name, role: user.role }, entityType: "user", entityId: user.id, details: { username: user.username, displayName: user.name, roleName: user.roleName } });
     const session = await createSession(user.id);
     return Response.json({ user: safeUser(user) }, { status: 201, headers: { "Set-Cookie": sessionCookie(session.token, session.expiresAt), "Cache-Control": "no-store" } });
   } catch (error) {

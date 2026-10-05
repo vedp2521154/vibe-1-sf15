@@ -1,5 +1,6 @@
 import { setRoleActive } from "@/lib/configStore";
 import { requireApiUser } from "@/lib/auth/server";
+import { recordActivity } from "@/lib/operationalEvents";
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const auth = await requireApiUser(request, ["admin"]);
@@ -12,6 +13,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const { id } = await context.params;
     const role = await setRoleActive(id, body.active);
     if (!role) return Response.json({ error: "This role cannot be changed or was not found." }, { status: 404 });
+    await recordActivity({ action: body.active ? "role_enabled" : "role_disabled", actor: { userId: auth.user.id, name: auth.user.name, role: auth.user.role }, entityType: "role", entityId: role._id, details: { roleName: role.name, role: role.slug } });
     return Response.json({ role });
   } catch (error) {
     console.error("Role update failed:", error);

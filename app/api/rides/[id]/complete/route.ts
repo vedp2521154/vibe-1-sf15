@@ -11,7 +11,7 @@ export async function POST(request: Request, context: RouteContext<"/api/rides/[
   if (!rideId) return Response.json({ error: "Ride request not found." }, { status: 404 });
 
   try {
-    return Response.json({ ride: await completeRide(rideId) });
+    return Response.json({ ride: await completeRide(rideId, { userId: auth.user.id, name: auth.user.name, role: auth.user.role }) });
   } catch (error) {
     return rideActionError(error, "complete");
   }

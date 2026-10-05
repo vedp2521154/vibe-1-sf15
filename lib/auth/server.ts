@@ -204,6 +204,16 @@ export async function listSafeUsers(): Promise<Array<{ id: string; username: str
   });
 }
 
+export async function listActiveUserIdsByCategory(category: RoleCategory): Promise<string[]> {
+  const { users } = await collections();
+  const [records, roles] = await Promise.all([
+    users.find({ active: true }, { projection: { roleSlug: 1 } }).toArray(),
+    listRoles(false),
+  ]);
+  const allowedSlugs = new Set(roles.filter((role) => role.category === category).map((role) => role.slug));
+  return records.filter((user) => allowedSlugs.has(user.roleSlug)).map((user) => user._id.toString());
+}
+
 export async function updateManagedUser(id: string, changes: { active?: boolean; roleSlug?: string; password?: string }): Promise<void> {
   if (!ObjectId.isValid(id)) throw new AuthError("User not found.", 404);
   const { users, sessions } = await collections();

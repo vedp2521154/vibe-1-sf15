@@ -1,40 +1,88 @@
 # Internal Mobility Desk
 
-A lightweight ride-coordination MVP for one campus Toto. Students and employees request rides, a rider manages pickup and completion, and completed trips stay available in history.
+Internal Mobility Desk coordinates shared rides for a single institutional vehicle, such as a campus Toto. It replaces informal requests with one operational queue and a clear trip history.
 
-## Tech stack
+## Core workflow
+
+**Request → Scheduling → Pending / Waitlist → Rider Accept → Boarded / Missed → Complete → History**
+
+The request scheduler checks the vehicle's configured capacity and schedule overlap. Conflicting requests wait for an open slot and return to the rider queue when one becomes available.
+
+## Roles
+
+- **Requester**: registers with an active requester role, creates and manages their own ride requests, and sees personal history and notifications.
+- **Rider**: reviews requests, accepts rides, records passenger pickup outcomes, and completes trips.
+- **Admin / Mobility Desk**: manages users, dynamic requester roles, locations, vehicle settings, history, archives, analytics, and activity visibility.
+
+## Features
+
+- Username and password accounts with server-side authorization
+- Dynamic requester roles and pickup/drop locations
+- Configurable vehicle name and passenger capacity
+- Scheduled trip duration, estimated end time, overlap detection, and waitlist promotion
+- Cancellation, rider acceptance, boarded/missed tracking, and trip completion
+- Personal history, rider/admin history, search, filters, pagination, archive, restore, and admin-only permanent deletion
+- Admin analytics with date ranges, status/passenger counts, common routes, peak request time, completion/boarding rates, and daily activity
+- Private in-app notifications for meaningful ride events
+- Admin audit activity for ride, user, role, location, and settings changes
+- Responsive light/dark theme
+- Installable PWA manifest and app icons; offline banner explains that server features require connectivity
+
+The PWA does not cache authenticated API responses or queue ride operations offline. Database-backed features require an internet connection.
+
+## Tech stack and architecture
 
 - Next.js App Router
 - TypeScript
 - Tailwind CSS
 - MongoDB Atlas with the official MongoDB Node.js driver
+- Vercel (deployment platform)
 
-## Roles and workflow
+```text
+Browser
+  ↓
+Next.js pages and authenticated Route Handlers
+  ↓
+MongoDB Atlas
+```
 
-Users sign in with a username and password. Their assigned active role determines which workspace they can access. Requester accounts can self-register using an active requester role; Rider and Admin accounts are created by an Admin. Rides support multiple passengers, scheduled durations, overlap handling, waitlists, cancellation, completion, and history.
-
-**Request → Accept / Clash → Boarded / Missed → Complete → History**
-
-## Run locally
+## Local setup
 
 1. Install Node.js 20.9 or newer and npm.
 2. Run `npm install`.
 3. Copy `.env.example` to `.env.local`.
-4. Set `MONGODB_URI` to your MongoDB Atlas connection string and set `MONGODB_DB=mobility_desk` in `.env.local`.
-5. Set `BOOTSTRAP_ADMIN_USERNAME`, `BOOTSTRAP_ADMIN_PASSWORD` (at least 10 characters), and `BOOTSTRAP_ADMIN_NAME` in `.env.local` to create the first Admin account on the first sign-in attempt. The bootstrap is idempotent and will not overwrite an existing account's password. Do not use a shared or weak password.
-6. Run `npm run dev` and open [http://localhost:3000](http://localhost:3000).
+4. Fill in the required values below.
+5. Run `npm run dev` and open [http://localhost:3000](http://localhost:3000).
 
-`.env.local` is ignored by Git. Keep the MongoDB URI and bootstrap credentials out of committed files. After the first Admin account is created, the bootstrap variables may be removed; resetting them will not change an existing user's password.
+`.env.local` is ignored by Git. Never commit MongoDB credentials or account passwords. An Admin account can create Rider and other managed accounts from **Admin → Users**.
 
-## Authentication and authorization
+## Environment variables
 
-- Passwords are hashed with Node.js `crypto.scrypt`; plaintext passwords are never stored or returned.
-- Sign-in creates a seven-day MongoDB-backed session. The browser receives only a random token in the `HttpOnly`, `SameSite=Lax` `mobility_session` cookie; MongoDB stores its SHA-256 hash. The cookie is marked `Secure` in production.
-- The server resolves each session to an active user and an active configured role. Client storage, role query parameters, and `x-mobility-role` headers do not grant permissions.
-- Requester registration is restricted server-side to active roles in the requester category. Admin/Rider accounts are created and managed from **Admin → Users**.
-- User and session indexes are created automatically, including a unique normalized username index and TTL cleanup for expired sessions.
-- Required environment variables: `MONGODB_URI`, `MONGODB_DB`, `BOOTSTRAP_ADMIN_USERNAME`, `BOOTSTRAP_ADMIN_PASSWORD`, and `BOOTSTRAP_ADMIN_NAME`. Configure the same variables in Vercel Environment Variables for each deployed environment. The app does not deploy itself.
+| Name | Purpose |
+| --- | --- |
+| `MONGODB_URI` | MongoDB Atlas connection string |
+| `MONGODB_DB` | Database name |
+| `BOOTSTRAP_ADMIN_USERNAME` | Username for first Admin creation |
+| `BOOTSTRAP_ADMIN_PASSWORD` | Strong password for first Admin creation (at least 10 characters) |
+| `BOOTSTRAP_ADMIN_NAME` | Display name for first Admin |
+
+The bootstrap variables are only used when no active Admin account exists. They do not reset an existing account's password. Configure the required values in the deployment platform's server-side environment settings. `.env.example` contains placeholders only.
+
+## Authentication and data security
+
+- Passwords are hashed with Node.js `crypto.scrypt`; plaintext passwords are not stored.
+- Sessions are stored in MongoDB. The browser receives a random token in a seven-day `HttpOnly`, `SameSite=Lax` cookie, marked `Secure` in production; MongoDB stores only its SHA-256 hash.
+- The server resolves each request's user and active role. Client-side role selection and identifiers do not grant access.
+- Registration permits active requester roles only. Rider and Admin accounts are provisioned by an Admin.
+- Notification endpoints scope every read and update to the signed-in user's server-verified ID. Admin analytics and audit activity are Admin-only.
+- Analytics, activity, notifications, rides, and account APIs are not cached by the PWA. There is no service worker or offline write queue.
 
 ## Checks
 
-Run `npm run lint`, `npx tsc --noEmit`, and `npm run build` before deploying.
+Run the project's checks before shipping changes:
+
+```sh
+npm run lint
+npx tsc --noEmit
+npm run build
+```
