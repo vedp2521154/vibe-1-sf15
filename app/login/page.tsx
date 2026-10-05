@@ -2,14 +2,15 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, BusFront, BriefcaseBusiness, GraduationCap } from "lucide-react";
+import { ArrowRight, BusFront, BriefcaseBusiness, GraduationCap, ShieldCheck } from "lucide-react";
 import { getUser, saveUser } from "@/lib/session";
-import type { UserRole } from "@/lib/types";
+import { getRoleHome, type UserRole } from "@/lib/types";
 
 const roles: { value: UserRole; label: string; description: string; icon: typeof GraduationCap }[] = [
   { value: "student", label: "Student", description: "Request a ride to campus", icon: GraduationCap },
   { value: "employee", label: "Employee", description: "Travel to your workplace", icon: BriefcaseBusiness },
   { value: "rider", label: "Rider", description: "Manage ride requests", icon: BusFront },
+  { value: "admin", label: "Admin / Mobility Desk", description: "Monitor campus Toto operations", icon: ShieldCheck },
 ];
 
 export default function LoginPage() {
@@ -20,7 +21,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     const user = getUser();
-    if (user) router.replace(user.role === "rider" ? "/rider" : "/request");
+    if (user) router.replace(getRoleHome(user.role));
   }, [router]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -38,7 +39,7 @@ export default function LoginPage() {
     }
 
     saveUser({ name: trimmedName, role });
-    router.replace(role === "rider" ? "/rider" : "/request");
+    router.replace(getRoleHome(role));
   }
 
   return (

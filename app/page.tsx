@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { getUser } from "@/lib/session";
+import { getRoleHome } from "@/lib/types";
 
 export default function HomePage() {
   const router = useRouter();
@@ -14,7 +15,7 @@ export default function HomePage() {
       return;
     }
 
-    router.replace(user.role === "rider" ? "/rider" : "/request");
+    router.replace(getRoleHome(user.role));
   }, [router]);
 
   return (

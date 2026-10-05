@@ -1,7 +1,7 @@
 import { getDatabase } from "@/lib/mongodb";
 import { MAX_PASSENGERS_PER_RIDE } from "@/lib/rideLimits";
 import { listCompletedRides, listRiderRides, rideActionError } from "@/lib/ridesStore";
-import { isLocationName, type Ride } from "@/lib/types";
+import { isLocationName, isRequester, type Ride } from "@/lib/types";
 
 type RequesterRole = Ride["requestedBy"]["role"];
 type StoredRide = Omit<Ride, "_id">;
@@ -11,7 +11,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isRequesterRole(value: unknown): value is RequesterRole {
-  return value === "student" || value === "employee";
+  return isRequester(value);
 }
 
 function isValidScheduledAt(value: unknown): value is string {
@@ -66,7 +66,7 @@ export async function GET(request: Request) {
 
   if (searchParams.get("view") === "history") {
     const historyRole = searchParams.get("role");
-    if (historyRole === "rider") {
+    if (historyRole === "rider" || historyRole === "admin") {
       try {
         return Response.json({ rides: await listCompletedRides() });
       } catch (error) {
@@ -74,7 +74,7 @@ export async function GET(request: Request) {
       }
     }
 
-    if (historyRole !== "student" && historyRole !== "employee") {
+    if (!isRequester(historyRole)) {
       return Response.json({ error: "The history role is invalid." }, { status: 400 });
     }
 

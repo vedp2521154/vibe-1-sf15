@@ -3,24 +3,21 @@
 import { useEffect, useSyncExternalStore, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { getSessionSnapshot, parseSessionUser, subscribeToSession } from "@/lib/session";
-import type { UserRole } from "@/lib/types";
+import { getRoleCategory, getRoleHome, type RoleCategory, type UserRole } from "@/lib/types";
 
 interface AuthGuardProps {
   children: ReactNode;
-  allowedFor?: UserRole | "requester";
-}
-
-function homeForRole(role: UserRole): string {
-  return role === "rider" ? "/rider" : "/request";
+  allowedFor?: UserRole | RoleCategory;
 }
 
 function subscribeToNothing(): () => void {
   return () => {};
 }
 
-function isAllowed(role: UserRole, allowedFor?: UserRole | "requester"): boolean {
+function isAllowed(role: UserRole, allowedFor?: UserRole | RoleCategory): boolean {
   if (!allowedFor) return true;
-  if (allowedFor === "requester") return role === "student" || role === "employee";
+  if (allowedFor === "REQUESTER") return getRoleCategory(role) === "REQUESTER";
+  if (allowedFor === "RIDER" || allowedFor === "ADMIN") return getRoleCategory(role) === allowedFor;
   return role === allowedFor;
 }
 
@@ -45,7 +42,7 @@ export default function AuthGuard({ children, allowedFor }: AuthGuardProps) {
     }
 
     if (!isAllowed(userRole, allowedFor)) {
-      router.replace(homeForRole(userRole));
+      router.replace(getRoleHome(userRole));
     }
   }, [allowedFor, hasHydrated, router, userRole]);
 

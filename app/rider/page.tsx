@@ -7,7 +7,7 @@ import { PassengerStatusBadge, RideStatusBadge } from "@/components/StatusBadge"
 import { formatDateTime } from "@/lib/dateFormat";
 import { getSessionSnapshot, parseSessionUser, subscribeToSession } from "@/lib/session";
 import { userFacingMessage } from "@/lib/userFacingMessage";
-import type { Ride } from "@/lib/types";
+import { isRider, type Ride } from "@/lib/types";
 
 interface RideResponse {
   rides?: Ride[];
@@ -73,7 +73,7 @@ function RiderDashboard() {
   }, []);
 
   useEffect(() => {
-    if (user?.role !== "rider") return;
+    if (!isRider(user?.role)) return;
     let active = true;
     fetch("/api/rides?view=rider", { cache: "no-store" })
       .then(async (response) => {
@@ -278,7 +278,7 @@ function RiderDashboard() {
 
 export default function RiderPage() {
   return (
-    <AuthGuard allowedFor="rider">
+    <AuthGuard allowedFor="RIDER">
       <RiderDashboard />
     </AuthGuard>
   );

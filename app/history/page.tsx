@@ -6,8 +6,8 @@ import AuthGuard from "@/components/AuthGuard";
 import { PassengerStatusBadge, RideStatusBadge } from "@/components/StatusBadge";
 import { formatDateTime } from "@/lib/dateFormat";
 import { getSessionSnapshot, parseSessionUser, subscribeToSession } from "@/lib/session";
+import { isOperationalRole, isRequester, type Ride, type UserRole } from "@/lib/types";
 import { userFacingMessage } from "@/lib/userFacingMessage";
-import type { Ride, UserRole } from "@/lib/types";
 
 interface RideResponse {
   rides?: Ride[];
@@ -17,7 +17,8 @@ interface RideResponse {
 function RideHistoryCard({ ride, role, name }: { ride: Ride; role: UserRole; name: string }) {
   const scheduled = formatDateTime(ride.scheduledAt);
   const completed = ride.completedAt ? formatDateTime(ride.completedAt) : null;
-  const passenger = role === "rider"
+  const canSeeAllRides = isOperationalRole(role);
+  const passenger = canSeeAllRides
     ? undefined
     : ride.passengers.find((entry) => entry.name.toLocaleLowerCase() === name.toLocaleLowerCase());
 
@@ -37,7 +38,7 @@ function RideHistoryCard({ ride, role, name }: { ride: Ride; role: UserRole; nam
         Requested by <span className="font-semibold text-slate-900">{ride.requestedBy.name}</span>
       </p>
 
-      {role === "rider" ? (
+      {canSeeAllRides ? (
         <div className="mt-5 border-t border-slate-100 pt-4">
           <h3 className="text-sm font-bold text-slate-900">Passengers</h3>
           <ul className="mt-2 divide-y divide-slate-100">
@@ -55,7 +56,7 @@ function RideHistoryCard({ ride, role, name }: { ride: Ride; role: UserRole; nam
         </p>
       )}
 
-      {role === "rider" && completed?.date && (
+      {canSeeAllRides && completed?.date && (
         <p className="mt-4 border-t border-slate-100 pt-3 text-xs text-slate-500">
           Completed {completed.date}{completed.time ? ` · ${completed.time}` : ""}
         </p>
@@ -77,7 +78,7 @@ function HistoryContent() {
     if (!user?.name || !role) return;
     let active = true;
     const query = new URLSearchParams({ view: "history", role });
-    if (role !== "rider") query.set("name", user.name);
+    if (isRequester(role)) query.set("name", user.name);
 
     fetch(`/api/rides?${query.toString()}`, { cache: "no-store" })
       .then(async (response) => {
@@ -105,7 +106,7 @@ function HistoryContent() {
     };
   }, [role, refreshKey, user?.name]);
 
-  const isRider = role === "rider";
+  const canSeeAllRides = role ? isOperationalRole(role) : false;
 
   return (
     <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col px-4 py-7 sm:px-6 sm:py-10 lg:px-8">
@@ -114,7 +115,7 @@ function HistoryContent() {
           <p className="text-sm font-semibold text-mobility-700">Your journeys</p>
           <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">Trip History</h1>
           <p className="mt-2 text-sm leading-6 text-slate-600">
-            {isRider ? "Review every completed trip." : "Your campus ride history."}
+            {canSeeAllRides ? "Review every completed trip." : "Your campus ride history."}
           </p>
         </div>
         <button
@@ -138,7 +139,7 @@ function HistoryContent() {
           <span className="grid size-12 place-items-center rounded-xl bg-mobility-50 text-mobility-700">
             <History aria-hidden="true" className="size-6" />
           </span>
-          <h2 className="mt-5 text-lg font-semibold text-slate-900">{isRider ? "No completed trips yet." : "No trips in your history yet."}</h2>
+          <h2 className="mt-5 text-lg font-semibold text-slate-900">{canSeeAllRides ? "No completed trips yet." : "No trips in your history yet."}</h2>
           <p className="mt-2 max-w-sm text-sm leading-6 text-slate-500">
             Completed rides will appear here when available.
           </p>

@@ -8,7 +8,7 @@ import { formatDateTime } from "@/lib/dateFormat";
 import { getSessionSnapshot, parseSessionUser, subscribeToSession } from "@/lib/session";
 import { userFacingMessage } from "@/lib/userFacingMessage";
 import { MAX_PASSENGERS_PER_RIDE } from "@/lib/rideLimits";
-import type { LocationName, Ride, UserRole } from "@/lib/types";
+import { isRequester, type LocationName, type Ride, type UserRole } from "@/lib/types";
 
 const locations: LocationName[] = ["College", "Station", "Office"];
 
@@ -23,7 +23,7 @@ interface RideResponse {
 }
 
 function requesterRole(role: UserRole | undefined): "student" | "employee" | null {
-  return role === "student" || role === "employee" ? role : null;
+  return isRequester(role) ? role : null;
 }
 
 async function fetchRequesterRides(name: string, role: "student" | "employee"): Promise<Ride[]> {
@@ -415,7 +415,7 @@ function RequestPageContent() {
 
 export default function RequestPage() {
   return (
-    <AuthGuard allowedFor="requester">
+    <AuthGuard allowedFor="REQUESTER">
       <RequestPageContent />
     </AuthGuard>
   );
