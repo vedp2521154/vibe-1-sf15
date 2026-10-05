@@ -1,4 +1,5 @@
 import { getDatabase } from "@/lib/mongodb";
+import { MAX_PASSENGERS_PER_RIDE } from "@/lib/rideLimits";
 import { listCompletedRides, listRiderRides, rideActionError } from "@/lib/ridesStore";
 import { isLocationName, type Ride } from "@/lib/types";
 
@@ -158,6 +159,13 @@ export async function POST(request: Request) {
 
   if (!Array.isArray(body.passengers)) {
     return Response.json({ error: "Add at least one passenger." }, { status: 400 });
+  }
+
+  if (body.passengers.length > MAX_PASSENGERS_PER_RIDE) {
+    return Response.json(
+      { error: "A Toto can carry a maximum of 5 passengers." },
+      { status: 400 },
+    );
   }
 
   const passengerNames: string[] = [];

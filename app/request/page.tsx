@@ -7,6 +7,7 @@ import { PassengerStatusBadge, RideStatusBadge } from "@/components/StatusBadge"
 import { formatDateTime } from "@/lib/dateFormat";
 import { getSessionSnapshot, parseSessionUser, subscribeToSession } from "@/lib/session";
 import { userFacingMessage } from "@/lib/userFacingMessage";
+import { MAX_PASSENGERS_PER_RIDE } from "@/lib/rideLimits";
 import type { LocationName, Ride, UserRole } from "@/lib/types";
 
 const locations: LocationName[] = ["College", "Station", "Office"];
@@ -100,10 +101,11 @@ function RequestPageContent() {
   }
 
   function addPassenger() {
-    setPassengers((current) => [
-      ...current,
-      { id: nextPassengerId.current++, name: "" },
-    ]);
+    setPassengers((current) => {
+      if (current.length >= MAX_PASSENGERS_PER_RIDE) return current;
+
+      return [...current, { id: nextPassengerId.current++, name: "" }];
+    });
   }
 
   function removePassenger(id: number) {
@@ -324,11 +326,13 @@ function RequestPageContent() {
           <button
             type="button"
             onClick={addPassenger}
-            className="mt-3 inline-flex h-10 items-center gap-2 rounded-lg border border-mobility-200 px-3 text-sm font-semibold text-mobility-800 transition hover:bg-mobility-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mobility-600"
+            disabled={passengers.length >= MAX_PASSENGERS_PER_RIDE}
+            className="mt-3 inline-flex h-10 items-center gap-2 rounded-lg border border-mobility-200 px-3 text-sm font-semibold text-mobility-800 transition hover:bg-mobility-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mobility-600 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Plus aria-hidden="true" className="size-4" />
             Add Passenger
           </button>
+          <p className="mt-2 text-xs text-slate-500">Maximum {MAX_PASSENGERS_PER_RIDE} passengers per ride</p>
         </section>
 
         {formError && <p className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700" role="alert">{userFacingMessage(formError, "Your request could not be completed. Please try again shortly.")}</p>}
