@@ -30,6 +30,117 @@
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+
+  --route-line: #b6dec5;
+  --route-accent: #22a06b;
+  --route-node: #ffffff;
+  --route-node-center: #166534;
+  --route-shadow: #dde8e1;
+  --route-vehicle: #22a06b;
+  --route-window: #ecfdf3;
+  --route-trim: #166534;
+  --route-wheel: #17221b;
+  --route-wheel-center: #f7fbf8;
+}
+
+:root.dark {
+  color-scheme: dark;
+  background: #0f1713;
+  color: #f3f7f4;
+
+  --color-mobility-50: #1c2b22;
+  --color-mobility-100: #223129;
+  --color-mobility-200: #2b3c31;
+  --color-mobility-300: #3b5947;
+  --color-mobility-500: #34d399;
+  --color-mobility-600: #34d399;
+  --color-mobility-700: #2fb985;
+  --color-mobility-800: #86d9a8;
+
+  --color-slate-50: #0f1713;
+  --color-slate-100: #16221b;
+  --color-slate-200: #2b3c31;
+  --color-slate-300: #3b5143;
+  --color-slate-400: #75877c;
+  --color-slate-500: #aab8af;
+  --color-slate-600: #bdc9c1;
+  --color-slate-700: #d1dcd5;
+  --color-slate-800: #e2eae5;
+  --color-slate-900: #f3f7f4;
+  --color-slate-950: #f3f7f4;
+
+  --route-line: #345647;
+  --route-accent: #34d399;
+  --route-node: #16221b;
+  --route-node-center: #a6efc4;
+  --route-shadow: #0f1713;
+  --route-vehicle: #16835a;
+  --route-window: #2b3c31;
+  --route-trim: #34d399;
+  --route-wheel: #0b110e;
+  --route-wheel-center: #aab8af;
+}
+
+.dark .bg-white {
+  background-color: #16221b;
+}
+
+.dark .bg-emerald-50 {
+  background-color: #162e23;
+}
+
+.dark .bg-amber-50 {
+  background-color: #332a18;
+}
+
+.dark .bg-rose-50 {
+  background-color: #3a2026;
+}
+
+.dark .border-amber-200,
+.dark .ring-amber-200 {
+  border-color: #665128;
+  --tw-ring-color: #665128;
+}
+
+.dark .border-rose-200,
+.dark .ring-rose-200 {
+  border-color: #75404a;
+  --tw-ring-color: #75404a;
+}
+
+.dark .border-rose-300 {
+  border-color: #985461;
+}
+
+.dark .text-amber-800,
+.dark .text-amber-900 {
+  color: #f5d27a;
+}
+
+.dark .text-rose-600,
+.dark .text-rose-700,
+.dark .text-rose-800,
+.dark .text-rose-900 {
+  color: #f3a6ad;
+}
+
+.dark :where(input, select, textarea) {
+  color-scheme: dark;
+}
+
+.theme-transition,
+.theme-transition * {
+  transition-property: color, background-color, border-color, fill, stroke !important;
+  transition-duration: 180ms !important;
+  transition-timing-function: ease !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-transition,
+  .theme-transition * {
+    transition-duration: 1ms !important;
+  }
 }
 
 * {
@@ -61,4 +172,8 @@ button {
 :where(a, button, input, select, textarea):focus-visible {
   outline: 2px solid #22a06b;
   outline-offset: 2px;
+}
+
+.dark :where(a, button, input, select, textarea):focus-visible {
+  outline-color: #34d399;
 }
